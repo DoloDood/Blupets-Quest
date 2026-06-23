@@ -142,6 +142,35 @@
     color:#6c7a99;opacity:.7;max-width:330px;letter-spacing:.2px}
   .credits a{color:inherit;text-decoration:underline;font-weight:700}
   .credits a:hover{color:var(--blu);opacity:1}
+  .resetlink{display:block;margin:2px auto 10px;background:none;border:none;cursor:pointer;
+    font-family:var(--body);font-size:10px;color:#9aa6bd;opacity:.6;text-decoration:underline;
+    letter-spacing:.3px;padding:6px 10px}
+  .resetlink:hover{opacity:1;color:#8a93a8}
+  .resetlink.danger{color:#d2453f;opacity:.9;font-size:12px;margin-top:4px}
+  .resetlink.danger:hover{color:#b8332e;opacity:1}
+  .gcard{margin:0 0 10px;text-align:left}
+  .gsec{font-family:var(--px);font-size:9px;color:var(--blu);margin-bottom:7px;line-height:1.6}
+  .gbody{font-size:13px;line-height:1.55;color:var(--ink);font-weight:600}
+  .gbody b{color:#1f2f55}
+  .gbody .gk{color:#3a8bf0;font-weight:800}
+  .loginwrap{max-width:420px;margin:0 auto;padding:18px 4px 8px}
+  .txtin{width:100%;box-sizing:border-box;padding:11px 12px;border:2px solid var(--line);border-radius:10px;
+    font-family:var(--body);font-size:15px;font-weight:600;color:var(--ink);background:#fff;outline:none}
+  .txtin:focus{border-color:var(--blu);box-shadow:0 0 0 3px #3a8bf033}
+  .acctline{text-align:center;font-size:11px;color:#8693ad;margin:8px auto 0;opacity:.9}
+  .acctline b{color:#5a6e9a}
+  .linkbtn{background:none;border:none;cursor:pointer;font-family:var(--body);font-size:11px;
+    color:var(--blu);text-decoration:underline;font-weight:700;padding:2px 4px}
+  .lbtabs{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:8px}
+  .lbtab{font-family:var(--body);font-weight:700;font-size:11px;cursor:pointer;padding:5px 9px;border-radius:8px;
+    border:2px solid #d7def0;background:#fff;color:#5a6e9a}
+  .lbtab.on{background:var(--blu);border-color:var(--blu);color:#fff}
+  .lblist{display:flex;flex-direction:column;gap:4px;margin-top:6px;text-align:left}
+  .lbrow{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:9px;background:#fff;border:2px solid #eef1f8}
+  .lbrow.me{border-color:var(--sun);background:#fffbe9}
+  .lbrank{font-family:var(--px);font-size:10px;width:30px;text-align:center;color:#8693ad}
+  .lbname{flex:1;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lbval{font-family:var(--px);font-size:11px;color:var(--blu)}
 
   .empty-slot{width:60px;height:60px;border:3px dashed #9fb4d6;border-radius:14px;
     display:flex;align-items:center;justify-content:center;color:#9fb4d6;font-size:22px;background:#ffffff77}
@@ -305,6 +334,7 @@
   @keyframes impactpop{0%{transform:translate(-50%,-50%) scale(.3);opacity:.95}
     100%{transform:translate(-50%,-50%) scale(2.4);opacity:0}}
 </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
 <body>
 <div class="clouds" id="clouds"></div>
@@ -476,6 +506,7 @@ let energyTimer=null;
 function makePet(colorName,level,vibe){
   const ci=BASE.findIndex(b=>b.name===colorName);
   const fam=FAM[ci]; // pure family id 0..7
+  bumpStat("pets");
   return {iid:"p"+(IID++), colorName, familyId:fam.id, tier:1, formIdx:0,
     vibe:(vibe==null?rint(64):vibe), level:level||1, xp:0, stones:[], bond:0};
 }
@@ -497,30 +528,44 @@ function gainXP(p,amt){
 /* =================== STATE / SAVE =================== */
 const SAVE_KEY="blupets-quest-save-v1";
 let S=null;
+/* auth + cloud state */
+const SUPA_URL="https://mzabzzfnwuqgkarrxyrm.supabase.co";
+const SUPA_KEY="sb_publishable_aAYGidy8P0_0peoJ0xn-Jg_OxT5Bbme";
+let sbc=null, authUser=null, isGuest=false, cloudTimer=null, lbStat="mobs";
 function freshState(){
   return {ver:1, started:false, pixels:60, energy:16, maxEnergy:16, lastTs:Date.now(),
     bits:{Red:6,Yellow:4,Green:6,Cyan:3,Blue:6,Purple:3,Black:2,White:2},
     pets:[], party:[], stones:[], dust:0, dex:{}, progress:{}, tab:"camp", music:true,
     cookTab:"cook", cookRole:"any", cookPremium:false, tradeFrom:"Red", tradeTo:"Blue",
-    prep:{snack:false,tonic:false,focus:false}, decorOwned:{}, decor:{}, decorPos:{}};
+    prep:{snack:false,tonic:false,focus:false}, decorOwned:{}, decor:{}, decorPos:{},
+    stats:{mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0}, username:null};
+}
+function migrateState(){
+  let mx=0;(S.pets||[]).forEach(p=>{const n=parseInt((p.iid||"p0").slice(1))||0; if(n>mx)mx=n;}); IID=mx+1;
+  if(S.dust==null)S.dust=0;
+  if(!S.cookTab)S.cookTab="cook"; if(!S.cookRole)S.cookRole="any";
+  if(!S.tradeFrom)S.tradeFrom="Red"; if(!S.tradeTo)S.tradeTo="Blue";
+  if(!S.prep)S.prep={snack:false,tonic:false,focus:false};
+  if(!S.decorOwned)S.decorOwned={}; if(!S.decor)S.decor={}; if(!S.decorPos)S.decorPos={};
+  if(!S.stats)S.stats={mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0};
+  if(S.username===undefined)S.username=null;
+  (S.pets||[]).forEach(p=>{ if(p.bond==null)p.bond=0; });
+  if(!S.progress){S.progress={}; const c=S.cleared||0; for(let i=0;i<c&&i<ZONES.length;i++)S.progress[ZONES[i].id]=ZONES[i].stages;}
+  const mig=s=>{ if(s&&!s.kind)s.kind=s.type||"mighty"; };
+  (S.pets||[]).forEach(p=>(p.stones||[]).forEach(mig));
+  (S.stones||[]).forEach(mig);
 }
 function load(){
-  try{const raw=localStorage.getItem(SAVE_KEY); if(raw){S=JSON.parse(raw);
-    // reseed IID above existing
-    let mx=0;(S.pets||[]).forEach(p=>{const n=parseInt((p.iid||"p0").slice(1))||0; if(n>mx)mx=n;}); IID=mx+1;
-    if(S.dust==null)S.dust=0;
-    if(!S.cookTab)S.cookTab="cook"; if(!S.cookRole)S.cookRole="any";
-    if(!S.tradeFrom)S.tradeFrom="Red"; if(!S.tradeTo)S.tradeTo="Blue";
-    if(!S.prep)S.prep={snack:false,tonic:false,focus:false};
-    if(!S.decorOwned)S.decorOwned={}; if(!S.decor)S.decor={}; if(!S.decorPos)S.decorPos={};
-    if(!S.progress){S.progress={}; const c=S.cleared||0; for(let i=0;i<c&&i<ZONES.length;i++)S.progress[ZONES[i].id]=ZONES[i].stages;}
-    const mig=s=>{ if(s&&!s.kind)s.kind=s.type||"mighty"; };
-    (S.pets||[]).forEach(p=>(p.stones||[]).forEach(mig));
-    (S.stones||[]).forEach(mig);
-    return;}}catch(e){}
+  try{const raw=localStorage.getItem(SAVE_KEY); if(raw){S=JSON.parse(raw); migrateState(); return;}}catch(e){}
   S=freshState();
 }
-function save(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(S));}catch(e){}}
+function bumpStat(k,n){ if(!S.stats)S.stats={mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0};
+  S.stats[k]=(S.stats[k]||0)+(n==null?1:n); }
+function highestZoneCleared(){ let hi=0; ZONES.forEach((z,i)=>{ if((S.progress&&S.progress[z.id]||0)>=z.stages) hi=i+1; }); return hi; }
+function highestPetLevel(){ return (S.pets||[]).reduce((m,p)=>Math.max(m,p.level||1),0); }
+function save(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(S));}catch(e){}
+  if(!isGuest && sbc && authUser){ clearTimeout(cloudTimer); cloudTimer=setTimeout(()=>{cloudSaveNow();syncLeaderboard();},1400); }
+}
 function markDex(familyId,tier,formIdx){
   const k=familyId+"-"+tier+"-"+(formIdx||0);
   S.dex[k]=true;
@@ -759,6 +804,52 @@ function decorHTML(){
     return `<span class="decor" data-k="${k}" style="left:${p.x}%;top:${p.y}%">${decorSprite(k,3)}</span>`;
   }).join("");
 }
+function showResetConfirm(){
+  const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
+    <h2 class="title center">⚠️ Erase everything?</h2>
+    <p class="center muted" style="margin:0 0 16px">This permanently deletes all your Blupets, Pixels, progress, and decorations on this device. This cannot be undone.</p>
+    <button class="btn mint" data-act="closeoverlay" style="width:100%;margin:0 0 10px">Cancel — keep my game</button>
+    <button class="resetlink danger" data-act="resetdo" style="display:block;margin:0 auto">Yes, erase all my data</button>
+  </div></div>`);
+  document.body.appendChild(ov);
+}
+function guideSprite(cell){return pxSprite(
+ ["CCCCCCCCC","CpppppppC","CpllllppC","CpppppppC","CpllllppC","CpppppppC","CpllllppC","CpppppppC","CCCCCCCCC"],
+ {C:"#3a8bf0",p:"#fff7e6",l:"#7fb3f0"}, cell||3);}
+function gsec(icon,title,body){return `<div class="card gcard">
+  <div class="gsec">${icon} ${title}</div><div class="gbody">${body}</div></div>`;}
+function showGuide(){
+  const secs=[
+    gsec("🏕️","The Goal",
+      "You're raising a team of <b>Blupets</b> on the Tumble Isles. Cook new friends, level them up, and battle through all <b>10 zones</b> — from Sprout Meadow to the Heart of the Isle. Build the strongest party you can!"),
+    gsec("🍳","Cooking Blupets",
+      "Tap the <b>pot</b> in camp (or the <b>Cook</b> tab) to make a new Blupet. Pick a <b>color</b> and spend <b>Bits</b>. You can aim for a specific <b>role</b> for more Bits, or pay <b>Stardust</b> for a Premium cook with a higher starting level. Your camp holds up to <b>8</b> Blupets."),
+    gsec("✦","Currencies",
+      "<b>Pixels ✦</b> — your main currency, earned from wins. Spend on training and decorations.<br><b>Bits</b> — colored crafting drops used to cook and trade.<br><b>Stardust 💠</b> — rarer; powers the Stone Forge and Premium cooks.<br><b>Energy ⚡</b> — each expedition costs 1. It refills slowly over time, or instantly for Pixels."),
+    gsec("⚔️","Battle Roles",
+      "Every Blupet has a role that shapes how it fights:<br><b>⚔️ Bruiser</b> — hits hard up close, but fragile.<br><b>🛡️ Guardian</b> — tanky, soaks damage.<br><b>✨ Caster</b> — ranged attacker that kites enemies.<br><b>🌀 Skirmisher</b> — fast, dodges often.<br><b>💚 Mender</b> — heals your team mid-fight."),
+    gsec("🗺️","Expeditions",
+      "On the <b>Quest</b> tab, pick a zone and send a party of up to 3. Battles play out live — sit back and watch! Each zone has several <b>stages</b> with multiple <b>waves</b>, and a <b>boss</b> on the final stage. Matching your team's element to a zone's weakness deals bonus damage (the <span class='gk'>blue numbers</span>). Once you've cleared a stage, a <b>skip</b> button lets you fast-forward replays."),
+    gsec("⭐","Leveling, Training & Evolution",
+      "Blupets earn <b>XP</b> from expeditions. You can also tap <b>Train +XP</b> in a pet's detail screen to buy a chunk of XP with Pixels — it fills the same bar. Fill the bar to level up (max <b>Lv 50</b>). At certain levels a Blupet can <b>evolve</b> into a stronger form!"),
+    gsec("💎","Power Stones & the Forge",
+      "Win expeditions to find <b>Power Stones</b> that boost ATK, HP, crit, evasion, damage, or lifesteal. Equip them from a pet's detail screen. In <b>Team → Stones</b> you can <b>crush</b> spares into Stardust, <b>craft</b> new stones, and <b>upgrade</b> their tier for stronger effects and extra slots."),
+    gsec("♥","Bond & Petting",
+      "Tap your Blupets in camp to pet them — hearts pop and their <b>Bond</b> level slowly grows. It's purely for fun and shows as a <b>♥ Lv</b> badge; it doesn't change their power. Your camp friends will also blink, hop, and sparkle on their own."),
+    gsec("🎀","Decorate Your Camp",
+      "Use the <b>Decorate camp</b> button to buy pixel-art props with Pixels. <b>Drag</b> any prop around the diorama to place it wherever you like. Each owned prop also gives a small perk — a few extra Bits, Pixels, XP, Stardust, or stone luck."),
+    gsec("💡","Handy Tips",
+      "• Keep a balanced party — a Guardian up front and a Mender in back goes a long way.<br>• <b>Brew</b> buffs on the Cook tab before a tough run.<br>• Lost a fight? You still get some XP, so you'll never get fully stuck.<br>• The world follows your clock — play at night for a moonlit camp! 🌙"),
+  ].join("");
+  const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
+    <div class="center" style="margin-bottom:4px">${guideSprite(4)}</div>
+    <h2 class="title center">Field Guide</h2>
+    <p class="center muted" style="margin:0 0 12px">Everything you need to raise a champion team.</p>
+    ${secs}
+    <button class="btn ghost" data-act="closeoverlay" style="width:100%;margin-top:2px">Close guide</button>
+  </div></div>`);
+  document.body.appendChild(ov);
+}
 function showDecorShop(){
   const rows=Object.keys(DECOR).map(k=>{const d=DECOR[k];
     const owned=S.decorOwned[k], placed=S.decor[k];
@@ -817,7 +908,11 @@ function vCamp(){
   ${guideBanner()}
   <h2 class="title">Welcome back!</h2>
   <p class="sub">Your camp on the Tumble Isles. ${party.length<3?"Tap the pot to cook more Blupets — and tap your friends to pet them!":"Tap your Blupets to pet them, or tap the pot to cook."}</p>
-  <button class="btn ghost sm" data-act="decorshop" style="margin:0 auto 12px;display:block">🎀 Decorate camp</button>
+  <div style="display:flex;gap:8px;justify-content:center;margin:0 0 12px;flex-wrap:wrap">
+    <button class="btn ghost sm" data-act="guide">📖 Guide</button>
+    <button class="btn ghost sm" data-act="leaderboard">🏆 Leaderboard</button>
+    <button class="btn ghost sm" data-act="decorshop">🎀 Decorate</button>
+  </div>
   <div class="grid2">
     <button class="btn blu" data-act="tab" data-tab="quest">🗺️ Expedition</button>
     <button class="btn cyan" data-act="tab" data-tab="cook">🍳 Cook</button>
@@ -836,11 +931,12 @@ function vCamp(){
       "Energy refills slowly over time. Come back later for more.",
       "Tougher zones drop better Power Stones."])}</p>
   </div>
-  <button class="btn ghost sm" data-act="reset" style="margin:4px auto 0;display:block">reset save</button>
+  <div class="acctline">${accountLineHTML()}</div>
   <div class="credits">
     Featuring authentic art from the Blupets NFT collection via the BluKit API.<br>
     Made by <a href="https://x.com/dolodood" target="_blank" rel="noopener noreferrer">@DoloDood</a>
-  </div>`;
+  </div>
+  <button class="resetlink" data-act="reset">reset save data</button>`;
 }
 
 function bitsRowHTML(){
@@ -1107,6 +1203,7 @@ function playExpedition(zone){
   const sub=subInfo(zone);
   const canSkip = sub.si < zoneProgress(zone); // only on stages you've already beaten
   const run={pool:zone.pool, lvl:sub.lvl, easy:zone.easy, el:zone.el};
+  let foeKills=0;
   const party=S.party.map(iid=>S.pets.find(p=>p.iid===iid)).filter(Boolean);
   const allies=party.map((p,i)=>makeUnit(buildFighter(p),"ally",i,party.length));
   const prep=S.prep||{};
@@ -1176,7 +1273,7 @@ function playExpedition(zone){
       popText(t, dmg+(crit?"!":""), crit?"#ffd23d":em>1?"#9fe3ff":"#fff", crit);
       t.el.classList.add("uhurt"); setTimeout(()=>{if(t.el)t.el.classList.remove("uhurt");},170);
       spawnImpact(t, ELECOLOR[u.el]||"#fff"); }
-    if(t.hp<=0 && !t.dead){ t.dead=true; t.el.classList.add("udown"); }
+    if(t.hp<=0 && !t.dead){ t.dead=true; t.el.classList.add("udown"); if(t.side==="foe")foeKills++; }
   }
   function attack(u,t){
     u.facing=t.x>=u.x?1:-1;
@@ -1246,6 +1343,8 @@ function playExpedition(zone){
     }
   }
   function end(win){ if(ended)return; ended=true; if(raf)cancelAnimationFrame(raf); draw();
+    bumpStat("expeditions"); if(win){ bumpStat("mobs",foeKills); if(sub.isFinal)bumpStat("bosses"); }
+    save();
     setTimeout(()=>showResult(win,zone,run,sub,ov), fast?0:700); }
   let last=performance.now();
   function frame(now){
@@ -1336,6 +1435,13 @@ document.addEventListener("click",e=>{
   else if(act==="petdetail"){petDetail(t.dataset.iid);}
   else if(act==="pet"){petPet(t.dataset.iid);}
   else if(act==="decorshop"){showDecorShop();}
+  else if(act==="guide"){showGuide();}
+  else if(act==="leaderboard"){showLeaderboard();}
+  else if(act==="magiclink"){doMagicLink();}
+  else if(act==="guest"){playAsGuest();}
+  else if(act==="signout"){signOut();}
+  else if(act==="gotologin"){showLoginScreen();}
+  else if(act==="setname"){promptUsername().then(()=>{syncLeaderboard();closeOverlay();showLeaderboard();});}
   else if(act==="decorbuy"){buyDecor(t.dataset.k);}
   else if(act==="decortoggle"){toggleDecor(t.dataset.k);}
   else if(act==="pettab"){S.petTab=t.dataset.pt==="stones"?"stones":"team";render();}
@@ -1352,7 +1458,8 @@ document.addEventListener("click",e=>{
   else if(act==="music"){toggleMusic();}
   else if(act==="energy"){showEnergyInfo();}
   else if(act==="refillEnergy"){refillEnergy();}
-  else if(act==="reset"){if(confirm("Erase your save and start over?")){S=freshState();save();startFlow();}}
+  else if(act==="reset"){showResetConfirm();}
+  else if(act==="resetdo"){S=freshState();save();closeOverlay();startFlow();}
 });
 function closeOverlay(){
   if(evoTimer){clearTimeout(evoTimer);evoTimer=null;}
@@ -1422,7 +1529,7 @@ function trainPet(iid){const p=S.pets.find(x=>x.iid===iid);if(!p)return;
 }
 function doEvolve(iid){const p=S.pets.find(x=>x.iid===iid);if(!p)return;
   const beforeArt=petArtURL(p,240);
-  if(evolvePet(p)){save();closeOverlay();showEvolveAnim(p,beforeArt);} }
+  if(evolvePet(p)){bumpStat("evolutions");save();closeOverlay();showEvolveAnim(p,beforeArt);} }
 function equipStone(iid,sid){const p=S.pets.find(x=>x.iid===iid);const s=S.stones.find(x=>x.id===sid);
   if(!p||!s)return; if((p.stones||[]).length>=stoneSlots(p)){toast("No free slot");return;}
   p.stones=p.stones||[];p.stones.push(s);sfx("equip");save();closeOverlay();petDetail(iid);}
@@ -1740,10 +1847,161 @@ function applyTimeTheme(){
   b.toggle("night",phase==="night"); b.toggle("dusk",phase==="dusk"); b.toggle("dawn",phase==="dawn");
 }
 
+/* =================== AUTH + CLOUD + LEADERBOARD =================== */
+function initSupa(){
+  try{ if(!sbc && window.supabase && window.supabase.createClient){
+    sbc=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  }}catch(e){ sbc=null; }
+  return sbc;
+}
+function cloudSaveNow(){ if(isGuest||!sbc||!authUser)return;
+  try{ sbc.from("game_saves").upsert({user_id:authUser.id,state:S,updated_at:new Date().toISOString()}).then(()=>{},()=>{}); }catch(e){} }
+function syncLeaderboard(){ if(isGuest||!sbc||!authUser||!S.username)return;
+  const st=S.stats||{};
+  try{ sbc.from("leaderboard").upsert({user_id:authUser.id, username:S.username,
+    mobs:st.mobs||0,bosses:st.bosses||0,pets:st.pets||0,evolutions:st.evolutions||0,
+    expeditions:st.expeditions||0, highest_zone:highestZoneCleared(), highest_level:highestPetLevel(),
+    updated_at:new Date().toISOString()}).then(()=>{},()=>{}); }catch(e){} }
+function enterGame(){ regenEnergy(); statbar(); renderTabs(); if(S.started)render(); else startFlow(); }
+function playAsGuest(){ isGuest=true; authUser=null; load(); enterGame(); }
+async function enterLoggedIn(){
+  isGuest=false;
+  let cloud=null;
+  try{ const {data}=await sbc.from("game_saves").select("state").eq("user_id",authUser.id).maybeSingle(); if(data&&data.state)cloud=data.state; }catch(e){}
+  if(cloud){ S=cloud; migrateState(); }
+  else { load(); cloudSaveNow(); }   // first login keeps any local/guest progress and pushes it up
+  await ensureUsername();
+  enterGame();
+  syncLeaderboard();
+}
+async function signOut(){ try{ if(sbc)await sbc.auth.signOut(); }catch(e){}
+  authUser=null; isGuest=false; clearTimeout(cloudTimer); $("statbar").innerHTML=""; showLoginScreen(); }
+async function ensureUsername(){
+  if(S.username)return;
+  let row=null;
+  try{ const {data}=await sbc.from("leaderboard").select("username").eq("user_id",authUser.id).maybeSingle(); row=data; }catch(e){}
+  if(row&&row.username){ S.username=row.username; save(); return; }
+  await promptUsername();
+}
+function promptUsername(){
+  return new Promise(resolve=>{
+    const ov=h(`<div class="overlay"><div class="battle">
+      <h2 class="title center">Pick a display name</h2>
+      <p class="center muted" style="margin:0 0 12px">This is how you'll appear on the leaderboard. 3–16 letters, numbers, or underscores.</p>
+      <input id="unameIn" class="txtin" maxlength="16" placeholder="e.g. BluMaster" autocomplete="off">
+      <div id="unameMsg" class="muted" style="font-size:12px;margin:8px 0;min-height:16px"></div>
+      <button class="btn mint" id="unameGo" style="width:100%;margin-bottom:8px">Save name</button>
+      <button class="resetlink" id="unameSkip" style="margin:0 auto">Maybe later</button>
+    </div></div>`);
+    document.body.appendChild(ov);
+    const inp=ov.querySelector("#unameIn"), msg=ov.querySelector("#unameMsg"), go=ov.querySelector("#unameGo");
+    ov.querySelector("#unameSkip").onclick=()=>{ ov.remove(); resolve(); };
+    go.onclick=async()=>{
+      const name=(inp.value||"").trim();
+      if(!/^[A-Za-z0-9_]{3,16}$/.test(name)){ msg.textContent="3–16 letters, numbers, or underscores."; return; }
+      if(!sbc){ msg.textContent="Offline — try again later."; return; }
+      go.disabled=true; msg.textContent="Saving…";
+      try{
+        const st=S.stats||{};
+        const {error}=await sbc.from("leaderboard").upsert({user_id:authUser.id, username:name,
+          mobs:st.mobs||0,bosses:st.bosses||0,pets:st.pets||0,evolutions:st.evolutions||0,
+          expeditions:st.expeditions||0, highest_zone:highestZoneCleared(), highest_level:highestPetLevel(),
+          updated_at:new Date().toISOString()});
+        if(error){ msg.textContent=(/duplicate|unique|23505/i.test(error.message+(error.code||"")))?"That name's taken — try another.":("Error: "+error.message); go.disabled=false; return; }
+        S.username=name; save(); ov.remove(); resolve();
+      }catch(e){ msg.textContent="Network error — try again."; go.disabled=false; }
+    };
+    if(inp.focus)setTimeout(()=>inp.focus(),50);
+  });
+}
+function accountLineHTML(){
+  if(isGuest) return `Playing as guest · <button class="linkbtn" data-act="gotologin">Sign in to save</button>`;
+  if(authUser) return `Signed in${S.username?" as <b>"+esc(S.username)+"</b>":""} · <button class="linkbtn" data-act="signout">Sign out</button>`;
+  return "";
+}
+function showLoginScreen(){
+  if($("tabs"))$("tabs").innerHTML=""; if($("statbar"))$("statbar").innerHTML="";
+  const v=$("view");
+  v.innerHTML=`<div class="loginwrap">
+    <div class="center" style="margin-bottom:2px">${guideSprite(5)}</div>
+    <h2 class="title center">Blupets Quest</h2>
+    <p class="sub center" style="margin-bottom:16px">Sign in to save your progress to the cloud and climb the leaderboard — or jump in as a guest.</p>
+    <div class="card">
+      <div class="ri-name" style="margin-bottom:8px">✉️ Sign in with email</div>
+      <input id="emailIn" type="email" inputmode="email" placeholder="you@example.com" class="txtin" autocomplete="email">
+      <button class="btn mint" data-act="magiclink" style="width:100%;margin-top:8px">Send me a magic link</button>
+      <div id="loginMsg" class="muted" style="font-size:12px;margin-top:8px;min-height:16px"></div>
+    </div>
+    <button class="btn ghost" data-act="guest" style="width:100%;margin-top:4px">Play as guest</button>
+    <p class="muted center" style="font-size:11px;margin-top:10px">Guests play locally on this device only — no cloud save or leaderboard. You can sign in anytime to keep your progress.</p>
+    ${sbc?"":'<p class="center" style="font-size:11px;color:#c0473a;margin-top:8px">⚠️ Online sign-in is unavailable right now — you can still play as a guest.</p>'}
+    <div class="credits" style="margin-top:18px">Featuring authentic art from the Blupets NFT collection via the BluKit API.<br>Made by <a href="https://x.com/dolodood" target="_blank" rel="noopener noreferrer">@DoloDood</a></div>
+  </div>`;
+}
+async function doMagicLink(){
+  const el=$("emailIn"), msg=$("loginMsg"); if(!el)return;
+  const email=(el.value||"").trim();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ if(msg)msg.textContent="Please enter a valid email address."; return; }
+  if(!sbc){ if(msg)msg.textContent="Sign-in is offline right now — try guest mode."; return; }
+  if(msg)msg.textContent="Sending…";
+  try{
+    const {error}=await sbc.auth.signInWithOtp({email, options:{emailRedirectTo:location.origin}});
+    if(error){ if(msg)msg.textContent="Couldn't send link: "+error.message; return; }
+    if(msg)msg.innerHTML="✅ Check your email for a sign-in link! Click it and you'll land back here, signed in.";
+  }catch(e){ if(msg)msg.textContent="Network error — try again, or play as guest."; }
+}
+const LB_STATS=[["mobs","Mobs"],["bosses","Bosses"],["pets","Pets"],["evolutions","Evolves"],["expeditions","Runs"],["highest_zone","Zone"],["highest_level","Level"]];
+function showLeaderboard(){
+  syncLeaderboard();
+  const needName = !isGuest && authUser && !S.username;
+  const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
+    <div class="center" style="font-size:30px">🏆</div>
+    <h2 class="title center">Leaderboard</h2>
+    <div id="lbTabs" class="lbtabs"></div>
+    <div id="lbBody" class="muted center" style="margin-top:10px;min-height:60px">Loading…</div>
+    ${needName?`<button class="btn mint" data-act="setname" style="width:100%;margin-top:8px">Choose a name to join</button>`:""}
+    ${isGuest?`<p class="muted center" style="font-size:11px;margin-top:8px">Playing as guest — <button class="linkbtn" data-act="gotologin">sign in</button> to appear here.</p>`:""}
+    <button class="btn ghost" data-act="closeoverlay" style="width:100%;margin-top:10px">Close</button>
+  </div></div>`);
+  document.body.appendChild(ov);
+  renderLbTabs(ov); loadLb(ov);
+}
+function renderLbTabs(ov){
+  const t=ov.querySelector("#lbTabs"); if(!t)return;
+  t.innerHTML=LB_STATS.map(([k,lb])=>`<button class="lbtab ${lbStat===k?'on':''}" data-lb="${k}">${lb}</button>`).join("");
+  t.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{ lbStat=b.dataset.lb; renderLbTabs(ov); loadLb(ov); });
+}
+async function loadLb(ov){
+  const body=ov.querySelector("#lbBody"); if(!body)return; body.textContent="Loading…";
+  if(!sbc){ body.textContent="Leaderboard is offline right now."; return; }
+  try{
+    const {data,error}=await sbc.from("leaderboard").select("username,"+lbStat).order(lbStat,{ascending:false}).limit(50);
+    if(error){ body.textContent="Couldn't load: "+error.message; return; }
+    if(!data||!data.length){ body.textContent="No scores yet — be the first on the board!"; return; }
+    const rows=data.map((r,i)=>{
+      const me=authUser&&S.username&&r.username===S.username;
+      const medal=i===0?"🥇":i===1?"🥈":i===2?"🥉":(i+1);
+      return `<div class="lbrow${me?' me':''}"><span class="lbrank">${medal}</span>
+        <span class="lbname">${esc(r.username)}</span><span class="lbval">${r[lbStat]}</span></div>`;
+    }).join("");
+    body.innerHTML=`<div class="lblist">${rows}</div>`;
+  }catch(e){ body.textContent="Network error loading the board."; }
+}
+async function bootAuth(){
+  initSupa();
+  if(sbc){
+    try{ sbc.auth.onAuthStateChange((ev,sess)=>{ if(sess&&sess.user&&!authUser){ authUser=sess.user; enterLoggedIn(); } }); }catch(e){}
+    let session=null;
+    try{ const {data}=await sbc.auth.getSession(); session=data&&data.session; }catch(e){}
+    if(session&&session.user){ authUser=session.user; await enterLoggedIn(); return; }
+  }
+  showLoginScreen();
+}
+
 /* boot */
 applyTimeTheme(); setInterval(applyTimeTheme, 60000);
 setInterval(()=>{
-  if(S.tab!=="camp")return;
+  if(!S||S.tab!=="camp")return;
   const nodes=document.querySelectorAll('.party-stage [data-petslot]');
   if(!nodes.length)return;
   const node=nodes[Math.floor(Math.random()*nodes.length)];
@@ -1751,8 +2009,7 @@ setInterval(()=>{
   if(a==="sparkle"){ idleSparkle(node); }
   else { node.classList.remove(a); void node.offsetWidth; node.classList.add(a); setTimeout(()=>node.classList.remove(a),700); }
 }, 3600);
-load(); regenEnergy(); statbar(); renderTabs();
-if(S.started)render(); else startFlow();
+bootAuth();
 </script>
 </body>
 </html>
