@@ -1066,12 +1066,12 @@ function initRoamers(){
   const pool=roamPool(); const N=Math.min(8,pool.length);
   const chosen=pool.slice().sort(()=>Math.random()-0.5).slice(0,N);
   chosen.forEach((p,i)=>{
-    const el=document.createElement("div"); el.className="roamer"; el.innerHTML=petArtHTML(p,34);
-    const top=56+Math.random()*12; el.style.top=top.toFixed(1)+"%"; el.style.zIndex=Math.round(top);
+    const el=document.createElement("div"); el.className="roamer"; el.innerHTML=petArtHTML(p,40);
+    const top=51+Math.random()*5; el.style.top=top.toFixed(1)+"%"; el.style.zIndex=Math.round(top);
     roamLayerEl.appendChild(el);
     const vx=(Math.random()<0.5?-1:1)*(3+Math.random()*4);
     roamers.push({el, x:6+(i/Math.max(1,N))*86+Math.random()*6, vx, facing:Math.sign(vx)||1,
-      mode:"walk", seed:Math.random()*6, scale:0.55+Math.random()*0.12, bob:0, playT:0});
+      mode:"walk", seed:Math.random()*6, scale:0.6+Math.random()*0.1, bob:0, playT:0});
   });
   roamDirectorT=0;
 }
