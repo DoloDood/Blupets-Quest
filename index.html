@@ -204,6 +204,20 @@
   .lbrank{font-family:var(--px);font-size:10px;width:30px;text-align:center;color:#8693ad}
   .lbname{flex:1;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .lbval{font-family:var(--px);font-size:11px;color:var(--blu)}
+  .ticker{overflow:hidden;white-space:nowrap;margin:0 auto 12px;max-width:520px;border:2px solid var(--line);
+    border-radius:10px;background:var(--cream);padding:6px 0;box-shadow:2px 2px 0 var(--shadow)}
+  .tick-track{display:inline-block;white-space:nowrap;padding-left:100%;animation:tickscroll 34s linear infinite;
+    font-size:12px;font-weight:600;color:var(--ink)}
+  .ticker:hover .tick-track{animation-play-state:paused}
+  .tick-item{padding:0 6px}.tick-dot{opacity:.4;padding:0 4px}
+  @keyframes tickscroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+  @media (prefers-reduced-motion:reduce){.tick-track{animation:none;padding-left:0}}
+  .commbox{margin:4px 0 6px}
+  .comm-tot{font-size:11px;color:var(--ink2);text-align:center;margin-bottom:6px;font-weight:600}
+  .goal-label{font-size:13px;font-weight:800;text-align:center;margin:2px 0 1px;color:var(--ink)}
+  .goal-sub{font-size:10px;text-align:center;margin-bottom:5px}
+  .goal-bar{height:14px;border:2px solid var(--line);border-radius:8px;background:#fff;overflow:hidden;box-shadow:2px 2px 0 var(--shadow)}
+  .goal-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--mint),var(--cyan));transition:width .6s ease}
 
   .empty-slot{width:60px;height:60px;border:3px dashed #9fb4d6;border-radius:14px;
     display:flex;align-items:center;justify-content:center;color:#9fb4d6;font-size:22px;background:#ffffff77}
@@ -658,7 +672,7 @@ function freshState(){
     cookTab:"cook", cookRole:"any", cookPremium:false, tradeFrom:"Red", tradeTo:"Blue",
     prep:{snack:false,tonic:false,focus:false}, decorOwned:{}, decor:{}, decorPos:{},
     stats:{mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0}, username:null,
-    lb:{day:null,week:null,dayStats:{},weekStats:{}}, daily:{last:null,streak:0}, merchantTs:0, cooking:null};
+    lb:{day:null,week:null,dayStats:{},weekStats:{}}, daily:{last:null,streak:0}, merchantTs:0, cooking:null, goalClaimed:{}};
 }
 function migrateState(){
   let mx=0;(S.pets||[]).forEach(p=>{const n=parseInt((p.iid||"p0").slice(1))||0; if(n>mx)mx=n;}); IID=mx+1;
@@ -671,6 +685,7 @@ function migrateState(){
   if(!S.lb)S.lb={day:null,week:null,dayStats:{},weekStats:{}};
   if(!S.daily)S.daily={last:null,streak:0}; if(S.merchantTs==null)S.merchantTs=0;
   if(S.cooking===undefined)S.cooking=null;
+  if(S.goalClaimed==null)S.goalClaimed={}; else if(typeof S.goalClaimed==="string")S.goalClaimed={[S.goalClaimed]:true};
   if(S.username===undefined)S.username=null;
   (S.pets||[]).forEach(p=>{ if(p.bond==null)p.bond=0; if(p.vibe==null)p.vibe=rint(64); if(!p.role)p.role=ROLE_OF(p.vibe); });
   if(!S.progress){S.progress={}; const c=S.cleared||0; for(let i=0;i<c&&i<ZONES.length;i++)S.progress[ZONES[i].id]=ZONES[i].stages;}
@@ -846,6 +861,7 @@ function collectCook(){
   const c=S.cooking; S.cooking=null;
   const p=makePet(c.color,c.lvl,c.vibe,c.role);
   S.pets.push(p); markDex(p.familyId,1,0); if(S.party.length<3)S.party.push(p.iid);
+  logActivity("cook", vibeName(p)+" "+c.color+" Blupet");
   save(); showCookReveal(p); render();
 }
 let cookTick=null, cookReadyFlag=false;
@@ -1200,6 +1216,7 @@ function vCamp(){
     <div class="party-stage">${stage}</div>
   </div>
   ${guideBanner()}
+  <div class="ticker" id="ticker"></div>
   <h2 class="title">Welcome back!</h2>
   <p class="sub">Your camp on the Tumble Isles. ${party.length<3?"Tap the pot to cook more Blupets — and tap your friends to pet them!":"Tap your Blupets to pet them, or tap the pot to cook."}</p>
   <div style="display:flex;gap:8px;justify-content:center;margin:0 0 12px;flex-wrap:wrap">
@@ -1653,7 +1670,7 @@ function playExpedition(zone){
     }
   }
   function end(win){ if(ended)return; ended=true; if(raf)cancelAnimationFrame(raf); draw();
-    bumpStat("expeditions"); if(win){ bumpStat("mobs",foeKills); if(sub.isFinal)bumpStat("bosses"); }
+    bumpStat("expeditions"); if(win){ bumpStat("mobs",foeKills); if(sub.isFinal){bumpStat("bosses"); logActivity("boss", zone.name+" boss");} }
     save();
     setTimeout(()=>showResult(win,zone,run,sub,ov), fast?0:700); }
   let last=performance.now();
@@ -1721,6 +1738,7 @@ function render(){
   else if(S.tab==="pets")v.innerHTML=vPets();
   else if(S.tab==="dex")v.innerHTML=vDex();
   if(S.cooking && !cookTick)startCookTicker();
+  if(S.tab==="camp")refreshTicker();
   save();
 }
 
@@ -1848,7 +1866,7 @@ function trainPet(iid){const p=S.pets.find(x=>x.iid===iid);if(!p)return;
 }
 function doEvolve(iid){const p=S.pets.find(x=>x.iid===iid);if(!p)return;
   const beforeArt=petArtURL(p,240);
-  if(evolvePet(p)){bumpStat("evolutions");save();closeOverlay();showEvolveAnim(p,beforeArt);} }
+  if(evolvePet(p)){bumpStat("evolutions");logActivity("evolve",petDisplayName(p));save();closeOverlay();showEvolveAnim(p,beforeArt);} }
 function equipStone(iid,sid){const p=S.pets.find(x=>x.iid===iid);const s=S.stones.find(x=>x.id===sid);
   if(!p||!s)return; if((p.stones||[]).length>=stoneSlots(p)){toast("No free slot");return;}
   p.stones=p.stones||[];p.stones.push(s);sfx("equip");save();closeOverlay();petDetail(iid);}
@@ -2175,6 +2193,98 @@ function initSupa(){
   }}catch(e){ sbc=null; }
   return sbc;
 }
+/* ---- community: activity feed + shared weekly goal ---- */
+const GOAL={stat:"mobs", target:1500, label:"mobs defeated by all trainers this week", emoji:"⚔️", reward:{px:120,dust:6}};
+function logActivity(kind,detail){
+  if(isGuest||!sbc||!authUser||!S.username)return;
+  try{ sbc.from("activity").insert({user_id:authUser.id, username:S.username, kind, detail:detail||""}).then(()=>{},()=>{}); }catch(e){}
+}
+let _tick={t:0,rows:[]};
+async function fetchActivity(force){
+  if(!sbc)return [];
+  if(!force && Date.now()-_tick.t<30000) return _tick.rows;
+  try{ const {data}=await sbc.from("activity").select("username,kind,detail").order("created_at",{ascending:false}).limit(12);
+    _tick={t:Date.now(), rows:data||[]}; return _tick.rows; }catch(e){ return _tick.rows; }
+}
+function activityText(r){ const who=esc(r.username), d=esc(r.detail||"");
+  if(r.kind==="cook")return `✨ ${who} cooked ${d}`;
+  if(r.kind==="evolve")return `🌟 ${who} evolved ${d}`;
+  if(r.kind==="boss")return `⚔️ ${who} beat the ${d}`;
+  if(r.kind==="zone")return `🏆 ${who} cleared ${d}`;
+  return `${who} ${d}`;
+}
+async function refreshTicker(){
+  const el=document.getElementById("ticker"); if(!el)return;
+  const rows=await fetchActivity();
+  if(!document.getElementById("ticker"))return;
+  if(!rows.length){ el.innerHTML=`<div class="tick-track" style="animation:none">✨ Be the first to make some noise on the Isles!</div>`; return; }
+  const items=rows.map(r=>`<span class="tick-item">${activityText(r)}</span>`).join("<span class='tick-dot'>•</span>");
+  el.innerHTML=`<div class="tick-track">${items}<span class='tick-dot'>•</span>${items}</div>`;
+}
+function goalClaimedHas(wk){ return !!(S.goalClaimed && S.goalClaimed[wk]); }
+function grantGoalReward(wk,last){
+  if(!S.goalClaimed)S.goalClaimed={}; S.goalClaimed[wk]=true;
+  S.pixels+=GOAL.reward.px; S.dust+=GOAL.reward.dust; save(); statbar(); showGoalCelebration(last);
+}
+function maybeClaimGoal(prog){ // current week, using local contribution (used by the leaderboard panel)
+  const wk=periodKeys().week;
+  if(isGuest||!authUser||goalClaimedHas(wk))return;
+  if(prog<GOAL.target)return;
+  const mine=(S.lb&&S.lb.weekStats&&S.lb.weekStats[GOAL.stat])||0;
+  if(mine<=0)return;
+  grantGoalReward(wk,false);
+}
+function showGoalCelebration(last){
+  const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle center">
+    <div style="font-size:40px">🎉⚔️🎉</div>
+    <h2 class="title">Community Goal Reached!</h2>
+    <p class="muted" style="margin:2px 0 10px">${last?"Trainers completed last week's goal — here's your share for pitching in!":"All trainers together hit this week's goal. Thanks for pitching in!"}</p>
+    <div class="card"><div class="gbody center">Your reward:<br><b>✦ ${GOAL.reward.px} Pixels · 💠 ${GOAL.reward.dust} Stardust</b></div></div>
+    <button class="btn mint" data-act="closeoverlay" style="width:100%">Woohoo!</button>
+  </div></div>`);
+  document.body.appendChild(ov);
+  for(let i=0;i<20;i++){const s=document.createElement("div");s.className="heartpop";s.textContent=pick(["🎉","✨","⭐","💫","🏆"]);
+    s.style.left=(10+Math.random()*80)+"%";s.style.top=(20+Math.random()*40)+"%";s.style.fontSize="20px";
+    s.style.animationDelay=(i*0.04)+"s";document.body.appendChild(s);setTimeout(()=>s.remove(),1500);}
+  sfx("victory");
+}
+async function checkGoal(){
+  if(isGuest||!sbc||!authUser||!S.username)return;
+  const wk=periodKeys().week;
+  // current week — contribution from local weekly bucket
+  if(!goalClaimedHas(wk)){
+    try{ const r=await sbc.rpc("weekly_total",{stat:GOAL.stat, wk});
+      if((r.data||0)>=GOAL.target){ const mine=(S.lb&&S.lb.weekStats&&S.lb.weekStats[GOAL.stat])||0; if(mine>0)grantGoalReward(wk,false); }
+    }catch(e){}
+  }
+  // previous week — pay stragglers; contribution read from the DB (local bucket has reset)
+  const lastWk=addDaysKey(wk,-7);
+  if(!goalClaimedHas(lastWk)){
+    try{ const r=await sbc.rpc("weekly_total",{stat:GOAL.stat, wk:lastWk});
+      if((r.data||0)>=GOAL.target){
+        const o=await sbc.from("lb_weekly").select(GOAL.stat).eq("user_id",authUser.id).eq("period",lastWk).maybeSingle();
+        const mine=(o&&o.data)?(o.data[GOAL.stat]||0):0;
+        if(mine>0)grantGoalReward(lastWk,true);
+      }
+    }catch(e){}
+  }
+}
+async function loadCommunity(ov){
+  const box=ov.querySelector("#commBox"); if(!box)return;
+  if(!sbc){ box.innerHTML=""; return; }
+  try{
+    let tot=null; try{ const r=await sbc.from("community_totals").select("*").maybeSingle(); tot=r.data; }catch(e){}
+    const wk=periodKeys().week; let prog=0;
+    try{ const r=await sbc.rpc("weekly_total",{stat:GOAL.stat, wk}); prog=r.data||0; }catch(e){}
+    const pct=Math.min(100,Math.round(prog/GOAL.target*100)), reached=prog>=GOAL.target;
+    if(!ov.querySelector("#commBox"))return;
+    box.innerHTML=`${tot?`<div class="comm-tot">👥 ${tot.trainers} trainers · 🍳 ${tot.pets} cooked · ⚔️ ${tot.mobs} mobs · 🌟 ${tot.evolutions} evolutions</div>`:''}
+      <div class="goal-label">${GOAL.emoji} Weekly Goal: ${prog.toLocaleString()} / ${GOAL.target.toLocaleString()} ${reached?'✅ reached!':''}</div>
+      <div class="goal-sub muted">${GOAL.label}</div>
+      <div class="goal-bar"><i style="width:${pct}%"></i></div>`;
+    if(reached)maybeClaimGoal(prog);
+  }catch(e){ box.innerHTML=""; }
+}
 function cloudSaveNow(){ if(isGuest||!sbc||!authUser)return;
   try{ sbc.from("game_saves").upsert({user_id:authUser.id,state:S,updated_at:new Date().toISOString()}).then(()=>{},()=>{}); }catch(e){} }
 function syncLeaderboard(){ if(isGuest||!sbc||!authUser||!S.username)return;
@@ -2201,6 +2311,7 @@ async function enterLoggedIn(){
   await ensureUsername();
   enterGame();
   syncLeaderboard();
+  checkGoal();
 }
 async function signOut(){ try{ if(sbc)await sbc.auth.signOut(); }catch(e){}
   authUser=null; isGuest=false; clearTimeout(cloudTimer); $("statbar").innerHTML=""; showLoginScreen(); }
@@ -2304,6 +2415,7 @@ function showLeaderboard(){
   const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
     <div class="center" style="font-size:30px">🏆</div>
     <h2 class="title center">Leaderboard</h2>
+    <div id="commBox" class="commbox"></div>
     <div id="lbViews" class="lbtabs"></div>
     <div id="lbTabs" class="lbtabs" style="margin-top:6px"></div>
     <div id="lbNote" class="muted center" style="font-size:10px;margin-top:6px"></div>
@@ -2313,7 +2425,7 @@ function showLeaderboard(){
     <button class="btn ghost" data-act="closeoverlay" style="width:100%;margin-top:10px">Close</button>
   </div></div>`);
   document.body.appendChild(ov);
-  renderLbViews(ov); renderLbTabs(ov); loadLb(ov);
+  renderLbViews(ov); renderLbTabs(ov); loadLb(ov); loadCommunity(ov);
 }
 function renderLbViews(ov){
   const t=ov.querySelector("#lbViews"); if(!t)return;
@@ -2391,6 +2503,7 @@ setInterval(()=>{
   else if(a==="nap"){ petBubble(node,"💤"); node.classList.remove("idle-wiggle"); void node.offsetWidth; node.classList.add("idle-wiggle"); setTimeout(()=>node.classList.remove("idle-wiggle"),700); }
   else { const cls=a; node.classList.remove(cls); void node.offsetWidth; node.classList.add(cls); setTimeout(()=>node.classList.remove(cls), cls==="idle-wander"?1600:700); }
 }, 3000);
+setInterval(()=>{ if(!isGuest && sbc && authUser && S.username) checkGoal(); }, 30000);
 bootAuth();
 </script>
 </body>
