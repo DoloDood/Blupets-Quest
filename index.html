@@ -513,14 +513,36 @@ const ROLE_BUCKETS={
   caster:[3,9,10,11,12,14,17,20,24,26,32,36,58,61,63],
 };
 const ROLE_OF=(()=>{const m={};for(const r in ROLE_BUCKETS)ROLE_BUCKETS[r].forEach(id=>m[id]=r);return id=>m[id]||"bruiser";})();
-function petRole(p){return ROLE_OF(p.vibe);}
+/* ---- Vibes: a named personality that nudges HP / ATK / SPD (independent of role) ---- */
+const VIBE_NATURES=[
+  {hp:1.00,atk:1.00,spd:1.00}, {hp:0.90,atk:1.12,spd:1.00}, {hp:1.12,atk:1.00,spd:0.92},
+  {hp:0.92,atk:1.00,spd:1.12}, {hp:1.00,atk:1.12,spd:0.92}, {hp:1.12,atk:0.92,spd:1.00},
+  {hp:1.00,atk:0.92,spd:1.12}, {hp:1.06,atk:1.08,spd:0.94}, {hp:0.94,atk:1.06,spd:1.08},
+  {hp:1.08,atk:0.94,spd:1.06}, {hp:1.08,atk:1.00,spd:0.98}, {hp:0.98,atk:1.00,spd:1.08},
+  {hp:1.00,atk:1.08,spd:0.98}, {hp:0.88,atk:1.10,spd:1.08}, {hp:1.16,atk:0.96,spd:0.90},
+  {hp:1.03,atk:1.03,spd:1.03},
+];
+const VIBE_NAMES=["Serene","Ember","Sturdy","Breezy","Crusher","Bulwark","Dasher","Valiant","Sly","Spry",
+  "Cozy","Zippy","Bold","Feral","Boulder","Lucky","Mellow","Blaze","Anchor","Gust","Smasher","Wall",
+  "Flicker","Hero","Trickster","Hopper","Snug","Zoom","Brash","Wildfire","Tank","Charm","Calm","Scorch",
+  "Fortress","Zephyr","Brawler","Shield","Sprint","Champion","Cunning","Bounce","Comfy","Turbo","Brave",
+  "Inferno","Rampart","Glide","Pummel","Aegis","Skip","Daring","Savage","Granite","Fortune","Drowsy",
+  "Cinder","Keep","Whisk","Knuckle","Barrier","Vault","Gallant","Sparkle"];
+const VIBES=VIBE_NAMES.map((nm,i)=>({name:nm, ...VIBE_NATURES[i%VIBE_NATURES.length]}));
+function vibeOf(p){ const i=(((p&&p.vibe)|0)%64+64)%64; return VIBES[i]||VIBES[0]; }
+function vibeName(p){ return vibeOf(p).name; }
+function vibeHint(p){ const v=vibeOf(p), out=[];
+  const f=(m,l)=>{ if(m>=1.05)out.push("+"+l); else if(m<=0.95)out.push("−"+l); };
+  f(v.hp,"HP"); f(v.atk,"ATK"); f(v.spd,"SPD");
+  return out.length?out.join(" "):"Balanced"; }
+function petRole(p){ return (p&&p.role) || ROLE_OF(p.vibe); }
 const ELECOLOR={Heat:"#ff7a6b",Solar:"#ffce4a",Growth:"#74c85a",Aqua:"#54c9d9",Frost:"#5aa6f0",Arcane:"#a965e8",Shadow:"#7d7b86",Pale:"#cabfa8"};
 const MAX_PETS=8;
 function xpForLevel(lv){return Math.round(18*lv*lv*0.6 + 22*lv);}
 function petStats(p){
-  const b=TIER_BASE[p.tier]; const R=ROLES[petRole(p)]; const e=petEffects(p);
-  let hp=Math.round(b.hp*(1+ (p.level-1)*0.12)*R.hpM*(1+e.hpPct));
-  let atk=Math.round(b.atk*(1+ (p.level-1)*0.10)*R.atkM*(1+e.atkPct));
+  const b=TIER_BASE[p.tier]; const R=ROLES[petRole(p)]; const e=petEffects(p); const v=vibeOf(p);
+  let hp=Math.round(b.hp*(1+ (p.level-1)*0.12)*R.hpM*v.hp*(1+e.hpPct));
+  let atk=Math.round(b.atk*(1+ (p.level-1)*0.10)*R.atkM*v.atk*(1+e.atkPct));
   return {hp,atk};
 }
 function petPower(p){const s=petStats(p);return Math.round(s.hp*0.5 + s.atk*4 + p.tier*40 + p.level*6);}
@@ -538,12 +560,12 @@ let IID=1;
 let EID=1;
 let evoTimer=null;
 let energyTimer=null;
-function makePet(colorName,level,vibe){
+function makePet(colorName,level,vibe,role){
   const ci=BASE.findIndex(b=>b.name===colorName);
   const fam=FAM[ci]; // pure family id 0..7
   bumpStat("pets");
   return {iid:"p"+(IID++), colorName, familyId:fam.id, tier:1, formIdx:0,
-    vibe:(vibe==null?rint(64):vibe), level:level||1, xp:0, stones:[], bond:0};
+    vibe:(vibe==null?rint(64):vibe), role:(role||pick(Object.keys(ROLES))), level:level||1, xp:0, stones:[], bond:0};
 }
 function canEvolve(p){return p.tier<4 && p.level>=EVOLVE_AT[p.tier];}
 function evolvePet(p){
@@ -588,7 +610,7 @@ function migrateState(){
   if(!S.daily)S.daily={last:null,streak:0}; if(S.merchantTs==null)S.merchantTs=0;
   if(S.cooking===undefined)S.cooking=null;
   if(S.username===undefined)S.username=null;
-  (S.pets||[]).forEach(p=>{ if(p.bond==null)p.bond=0; });
+  (S.pets||[]).forEach(p=>{ if(p.bond==null)p.bond=0; if(p.vibe==null)p.vibe=rint(64); if(!p.role)p.role=ROLE_OF(p.vibe); });
   if(!S.progress){S.progress={}; const c=S.cleared||0; for(let i=0;i<c&&i<ZONES.length;i++)S.progress[ZONES[i].id]=ZONES[i].stages;}
   const mig=s=>{ if(s&&!s.kind)s.kind=s.type||"mighty"; };
   (S.pets||[]).forEach(p=>(p.stones||[]).forEach(mig));
@@ -703,7 +725,7 @@ function buildFighter(p){
   return {iid:p.iid,name:petDisplayName(p),el:famElement(FAM_BY_ID[p.familyId]),tier:p.tier,
     art:petArtURL(p,72),hp:s.hp,maxhp:s.hp,atk:s.atk,level:p.level,side:"ally",
     role:rk,range:R.range,reduce:R.reduce,dodge:R.dodge+e.dodge,healer:R.heal>0,
-    critBonus:R.crit+e.crit,dmgAmp:e.dmgAmp,lifesteal:e.lifesteal,spdM:R.spdM,sizeM:R.sizeM};
+    critBonus:R.crit+e.crit,dmgAmp:e.dmgAmp,lifesteal:e.lifesteal,spdM:R.spdM*vibeOf(p).spd,sizeM:R.sizeM};
 }
 /* rewards (granted by the live arena on victory) */
 function grantRewards(run){
@@ -751,15 +773,16 @@ function startCook(colorName){
   if(premium && S.dust<dustCost){toast("Need 💠"+dustCost+" Stardust for a Choice recipe");return;}
   S.bits[colorName]-=bitCost; if(premium)S.dust-=dustCost;
   const lvl=premium?5:(chance(0.18)?3:1);
-  const vibe=role==="any"?null:pick(ROLE_BUCKETS[role]);
-  S.cooking={start:Date.now(), dur:COOK_MS, color:colorName, lvl, vibe};
+  const cookRoleSel = (role==="any") ? pick(Object.keys(ROLES)) : role;
+  const vibe=rint(64);
+  S.cooking={start:Date.now(), dur:COOK_MS, color:colorName, lvl, vibe, role:cookRoleSel};
   cookReadyFlag=false; sfx("cook"); save(); render(); startCookTicker();
   toast("🍲 Cooking… ready in 1 minute!");
 }
 function collectCook(){
   if(!cookReady())return;
   const c=S.cooking; S.cooking=null;
-  const p=makePet(c.color,c.lvl,c.vibe);
+  const p=makePet(c.color,c.lvl,c.vibe,c.role);
   S.pets.push(p); markDex(p.familyId,1,0); if(S.party.length<3)S.party.push(p.iid);
   save(); showCookReveal(p); render();
 }
@@ -1191,7 +1214,7 @@ function vCookMain(){
     `</div>`;
   const canCook = sel && (S.bits[sel]||0)>=bitCost && (!premium || S.dust>=dustCost);
   return `
-  <p class="sub">Pick a color, then choose what kind of Blupet to lure. Targeting a role costs more Bits; a Choice recipe spends Stardust for a level-5 start.</p>
+  <p class="sub">Pick a color, then choose a <b>role</b> (its battle style). Targeting a role costs more Bits. Every Blupet also gets a random <b>✨ vibe</b> that nudges its HP, ATK, or Speed — hope for one that suits the role! A Choice recipe spends Stardust for a level-5 start.</p>
   <div class="card center">
     <div class="pot-big"><div class="pot-lid"></div><div class="pot-body"></div></div>
     <div class="muted" style="margin-bottom:8px">Flavor (color) — number shows Bits you have:</div>
@@ -1295,6 +1318,7 @@ function vPets(){
           <span class="tag" style="border-color:${ROLES[petRole(p)].color}99;color:${ROLES[petRole(p)].color}">${ROLES[petRole(p)].tag} ${ROLES[petRole(p)].name}</span>
           <span class="tag">${ELEMOJI[famElement(FAM_BY_ID[p.familyId])]} ${famElement(FAM_BY_ID[p.familyId])}</span>
           <span>Lv ${p.level}</span>
+          <span class="tag" style="border-color:#a87be8;color:#8a5cc0">✨ ${vibeName(p)}</span>
         </div>
         <div class="ri-meta" style="margin-top:3px">
           <span>❤️ ${st.hp}</span><span>⚔️ ${st.atk}</span><span class="muted">⭐ ${petPower(p)}</span>${bondLevel(p)>0?`<span style="color:#e0557a">♥ Lv ${bondLevel(p)}</span>`:''}
@@ -1347,6 +1371,7 @@ function petDetail(iid){
       <span class="tag" style="border-color:${ROLES[petRole(p)].color}99;color:${ROLES[petRole(p)].color}">${ROLES[petRole(p)].tag} ${ROLES[petRole(p)].name}</span>
       <span class="tag">${ELEMOJI[el]} ${el}</span> · Lv ${p.level}</p>
     <p class="center muted" style="margin:-4px 0 0;font-size:13px;color:${ROLES[petRole(p)].color}">${ROLES[petRole(p)].blurb}</p>
+    <p class="center" style="margin:5px 0 0;font-size:13px"><b style="color:#8a5cc0">✨ ${vibeName(p)} vibe</b> <span class="muted">— ${vibeHint(p)}</span></p>
     <p class="center muted" style="margin:4px 0 0;color:#e0557a;font-weight:700">♥ Bond Lv ${bondLevel(p)}${p.bond?` · petted ${p.bond}×`:''}</p>
     <div class="card" style="margin:10px 0">
       <div class="ri-meta" style="justify-content:space-between"><span>❤️ HP ${st.hp}</span><span>⚔️ ATK ${st.atk}</span><span>⭐ Power ${petPower(p)}</span></div>
