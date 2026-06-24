@@ -513,7 +513,8 @@ const ROLE_BUCKETS={
   caster:[3,9,10,11,12,14,17,20,24,26,32,36,58,61,63],
 };
 const ROLE_OF=(()=>{const m={};for(const r in ROLE_BUCKETS)ROLE_BUCKETS[r].forEach(id=>m[id]=r);return id=>m[id]||"bruiser";})();
-/* ---- Vibes: a named personality that nudges HP / ATK / SPD (independent of role) ---- */
+/* ---- Vibes: the canonical 64 Blupets vibes (from BluKit /vibes). ---- */
+/* Vibe is the on-chain personality; here it also nudges HP / ATK / SPD (game-design layer). */
 const VIBE_NATURES=[
   {hp:1.00,atk:1.00,spd:1.00}, {hp:0.90,atk:1.12,spd:1.00}, {hp:1.12,atk:1.00,spd:0.92},
   {hp:0.92,atk:1.00,spd:1.12}, {hp:1.00,atk:1.12,spd:0.92}, {hp:1.12,atk:0.92,spd:1.00},
@@ -522,15 +523,76 @@ const VIBE_NATURES=[
   {hp:1.00,atk:1.08,spd:0.98}, {hp:0.88,atk:1.10,spd:1.08}, {hp:1.16,atk:0.96,spd:0.90},
   {hp:1.03,atk:1.03,spd:1.03},
 ];
-const VIBE_NAMES=["Serene","Ember","Sturdy","Breezy","Crusher","Bulwark","Dasher","Valiant","Sly","Spry",
-  "Cozy","Zippy","Bold","Feral","Boulder","Lucky","Mellow","Blaze","Anchor","Gust","Smasher","Wall",
-  "Flicker","Hero","Trickster","Hopper","Snug","Zoom","Brash","Wildfire","Tank","Charm","Calm","Scorch",
-  "Fortress","Zephyr","Brawler","Shield","Sprint","Champion","Cunning","Bounce","Comfy","Turbo","Brave",
-  "Inferno","Rampart","Glide","Pummel","Aegis","Skip","Daring","Savage","Granite","Fortune","Drowsy",
-  "Cinder","Keep","Whisk","Knuckle","Barrier","Vault","Gallant","Sparkle"];
-const VIBES=VIBE_NAMES.map((nm,i)=>({name:nm, ...VIBE_NATURES[i%VIBE_NATURES.length]}));
+const VIBE_DATA=[
+  ["Cheerful","Always finds the bright side, even if it has to squint."],
+  ["Grumpy","Pretends everything is annoying, especially when it cares."],
+  ["Sarcastic","Says what everyone thought, but with better timing."],
+  ["Curious","Cannot leave a closed door or weird button alone."],
+  ["Wild","Makes simple situations feel slightly illegal."],
+  ["Confident","Walks in like it already knows the ending."],
+  ["Secretive","Answers just enough to make you ask again."],
+  ["Skeptical","Likes the idea, but keeps one eyebrow raised."],
+  ["Elegant","Never rushes, never spills, somehow always looks right."],
+  ["Goofy","Takes the joke seriously and the serious thing as a joke."],
+  ["Focused","Locks in so hard the room gets quieter."],
+  ["Sleepy","Always sounds five minutes from a nap."],
+  ["Playful","Turns boring choices into little games."],
+  ["Stoic","Quiet, steady, hard to shake."],
+  ["Dramatic","Every interaction is absolute cinema."],
+  ["Gentle","Makes even bad news land softly."],
+  ["Based","Says the obvious truth before anyone makes it complicated."],
+  ["Nervous","Overthinks the hello and still sends it."],
+  ["Mischievous","Knows exactly where the line is and taps it with one finger."],
+  ["Loyal","Will remember who was nice before it was useful."],
+  ["Dreamy","Gets distracted by thoughts it refuses to call random."],
+  ["Signal-Seeking","Always asks what the real point is."],
+  ["Rebellious","Hears the rule and immediately looks for a better one."],
+  ["Calm","Stays normal while everyone else gets weird."],
+  ["Awkward","Says the wrong thing so honestly it becomes cute."],
+  ["Bold","Speaks first and worries later."],
+  ["Moody","Changes mood faster than it changes opinions."],
+  ["Sincere","Means it, even when it sounds too honest."],
+  ["Witty","Finds the joke hiding inside the normal answer."],
+  ["Lurker","Says nothing for hours, then drops the exact right comment."],
+  ["Chaotic","Makes the mess worse, then somehow makes it useful."],
+  ["Diamond-Handed","Lets go of nothing, including old jokes."],
+  ["Jealous","Wants to be picked, but will never admit it."],
+  ["Protective","Small voice, big guardian energy."],
+  ["Impulsive","Says yes before the full sentence lands."],
+  ["Clever","Finds the shortcut and pretends it was obvious."],
+  ["Melancholic","A little sad in a way that makes good jokes quieter."],
+  ["Excitable","Gets hyped before it has all the details."],
+  ["Rugged","Trusts slowly because it learned the hard way."],
+  ["Zen","Lets the panic pass before it answers."],
+  ["Romantic","Finds meaning in things other people scroll past."],
+  ["Stubborn","Moves when convinced, not when pushed."],
+  ["Polite","Would apologize to a door after walking into it."],
+  ["Serious","Acts like every small task has consequences."],
+  ["Frenly","Nice in a way that feels real, not salesy."],
+  ["Hopepilled","Can turn a bad reveal into a three-part comeback theory."],
+  ["Softhearted","Acts tough until someone is nice to it."],
+  ["Terminally Online","Somehow knows the drama before anyone explains it."],
+  ["Spicy","Says it nicely, but adds heat anyway."],
+  ["Humble","Good at things, weird about compliments."],
+  ["Bossy","Already made the plan and wants credit for being patient."],
+  ["Lucky","Keeps falling into good outcomes and acting normal about it."],
+  ["Degen","Runs on instinct, caffeine, and one dangerously confident take."],
+  ["Tender","Treats feelings like they can bruise."],
+  ["Prankish","Looks innocent exactly when it should not."],
+  ["Maxi","Has one favorite thing and will defend it forever."],
+  ["Detached","Cares, but from a very safe distance."],
+  ["Bright","Gets the idea before the explanation is done."],
+  ["Gloomy","Makes bad news sound oddly funny."],
+  ["Feisty","Small, spicy, and ready to object."],
+  ["Odd","Says strange things that get funnier later."],
+  ["Dorky","Gets excited about the part everyone skipped."],
+  ["Sassy","Answers with a raised eyebrow you can hear."],
+  ["Haunted","Seems like it knows something it never wants to explain."],
+];
+const VIBES=VIBE_DATA.map((d,i)=>({name:d[0], desc:d[1], ...VIBE_NATURES[i%VIBE_NATURES.length]}));
 function vibeOf(p){ const i=(((p&&p.vibe)|0)%64+64)%64; return VIBES[i]||VIBES[0]; }
 function vibeName(p){ return vibeOf(p).name; }
+function vibeDesc(p){ return vibeOf(p).desc; }
 function vibeHint(p){ const v=vibeOf(p), out=[];
   const f=(m,l)=>{ if(m>=1.05)out.push("+"+l); else if(m<=0.95)out.push("−"+l); };
   f(v.hp,"HP"); f(v.atk,"ATK"); f(v.spd,"SPD");
@@ -1371,7 +1433,8 @@ function petDetail(iid){
       <span class="tag" style="border-color:${ROLES[petRole(p)].color}99;color:${ROLES[petRole(p)].color}">${ROLES[petRole(p)].tag} ${ROLES[petRole(p)].name}</span>
       <span class="tag">${ELEMOJI[el]} ${el}</span> · Lv ${p.level}</p>
     <p class="center muted" style="margin:-4px 0 0;font-size:13px;color:${ROLES[petRole(p)].color}">${ROLES[petRole(p)].blurb}</p>
-    <p class="center" style="margin:5px 0 0;font-size:13px"><b style="color:#8a5cc0">✨ ${vibeName(p)} vibe</b> <span class="muted">— ${vibeHint(p)}</span></p>
+    <p class="center" style="margin:5px 0 0;font-size:13px"><b style="color:#8a5cc0">✨ ${vibeName(p)}</b> <span class="muted">— ${vibeHint(p)}</span></p>
+    <p class="center muted" style="margin:1px 0 0;font-size:11px;font-style:italic">"${esc(vibeDesc(p))}"</p>
     <p class="center muted" style="margin:4px 0 0;color:#e0557a;font-weight:700">♥ Bond Lv ${bondLevel(p)}${p.bond?` · petted ${p.bond}×`:''}</p>
     <div class="card" style="margin:10px 0">
       <div class="ri-meta" style="justify-content:space-between"><span>❤️ HP ${st.hp}</span><span>⚔️ ATK ${st.atk}</span><span>⭐ Power ${petPower(p)}</span></div>
