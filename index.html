@@ -367,6 +367,7 @@
   .stage{position:relative;width:336px;max-width:100%;height:188px;margin:8px auto;border:3px solid var(--line);
     border-radius:12px;overflow:hidden;box-shadow:inset 0 -12px 0 #0000000f, inset 0 0 0 2px #ffffff44}
   .unit{position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:center;will-change:transform}
+  .unit .stp{position:absolute;top:-7px;left:50%;transform:translateX(-50%);width:7px;height:7px;border-radius:50%;opacity:0;pointer-events:none;transition:opacity .15s;z-index:5}
   .unit .usprite{image-rendering:pixelated;transition:transform .12s;filter:drop-shadow(1px 2px 0 #0003)}
   .unit.boss .usprite{filter:drop-shadow(0 0 7px #ff7a6b) drop-shadow(1px 2px 0 #0003)}
   .unit.uhurt .usprite{filter:brightness(2.2) saturate(.2)}
@@ -738,13 +739,13 @@ function regenEnergy(){
 const ZONES=[
  {id:0,name:"Sprout Meadow",el:"Growth",emoji:"🌱",lvl:1,pool:[2,25,9],stages:3,easy:true},
  {id:1,name:"Ember Hollows",el:"Heat",emoji:"🔥",lvl:3,pool:[0,8,13],stages:4},
- {id:2,name:"Tidepool Cove",el:"Aqua",emoji:"🌊",lvl:5,pool:[3,10,21],stages:4},
+ {id:2,name:"Tidepool Cove",el:"Aqua",emoji:"🌊",lvl:5,pool:[3,10,21],stages:4,horde:true},
  {id:3,name:"Sunny Dunes",el:"Solar",emoji:"☀️",lvl:8,pool:[1,20,19],stages:5},
  {id:4,name:"Frostshard Pass",el:"Frost",emoji:"❄️",lvl:12,pool:[4,26,32],stages:5},
- {id:5,name:"Whisper Thicket",el:"Shadow",emoji:"🌑",lvl:16,pool:[6,24,28],stages:5},
+ {id:5,name:"Whisper Thicket",el:"Shadow",emoji:"🌑",lvl:16,pool:[6,24,28],stages:5,horde:true},
  {id:6,name:"Arcane Archives",el:"Arcane",emoji:"🔮",lvl:20,pool:[5,11,33],stages:6},
  {id:7,name:"Cloudtop Sanctum",el:"Pale",emoji:"☁️",lvl:25,pool:[7,34,29],stages:6},
- {id:8,name:"Aurora Spires",el:"Arcane",emoji:"🌌",lvl:32,pool:[27,30,31],stages:6},
+ {id:8,name:"Aurora Spires",el:"Arcane",emoji:"🌌",lvl:32,pool:[27,30,31],stages:6,horde:true},
  {id:9,name:"Heart of the Isle",el:"Heat",emoji:"⭐",lvl:40,pool:[12,18,35],stages:7},
 ];
 function zoneProgress(z){return (S.progress&&S.progress[z.id])||0;}
@@ -757,7 +758,8 @@ function subInfo(zone){
   const replay = prog>=zone.stages;
   const si = replay ? zone.stages-1 : prog;
   const isFinal = (si===zone.stages-1);
-  return {si, isFinal, replay, lvl:zone.lvl + Math.round(si*1.5), waves:isFinal?3:2};
+  const horde = !!zone.horde && isFinal;
+  return {si, isFinal, replay, horde, lvl:zone.lvl + Math.round(si*1.5), waves:horde?4:(isFinal?3:2)};
 }
 
 /* build enemies for a zone wave */
@@ -767,9 +769,15 @@ function enemyRole(isBoss){
   if(r<0.32)return "bruiser"; if(r<0.57)return "guardian"; if(r<0.77)return "skirmisher";
   if(r<0.94)return "caster"; return "mender";
 }
-function makeEnemy(zone,waveIdx,isBoss){
+function makeEnemy(zone,waveIdx,isBoss,swarm){
   const famId=pick(zone.pool); const fam=FAM_BY_ID[famId];
   const baseLvl=zone.lvl + waveIdx + (isBoss?2:0);
+  if(swarm){
+    const cName=pick(fam.pair);
+    const e=enemyObj("Swarmling",famElementByColor(cName),Math.max(1,zone.lvl-2)+waveIdx,1,artT1(cName,64),false,null,0,chance(0.6)?"skirmisher":"bruiser");
+    e.hp=Math.round(e.hp*0.5); e.maxhp=e.hp; e.atk=Math.round(e.atk*0.72); e.spdM=(e.spdM||1)*1.18;
+    return e;
+  }
   const tier=isBoss?(zone.lvl>=24?3:zone.lvl>=8?2:1):(zone.lvl>=14?2:1);
   const rk=enemyRole(isBoss);
   let e;
@@ -782,7 +790,7 @@ function makeEnemy(zone,waveIdx,isBoss){
     markDex(famId,tier,formIdx);
     e=enemyObj((isBoss?"Wild ":"")+name,famElement(fam),baseLvl,tier,artForm(fam,tier,formIdx,rint(64),72),isBoss,famId,formIdx,rk);
   }
-  if(zone.easy){e.hp=Math.round(e.hp*0.72);e.maxhp=e.hp;e.atk=Math.round(e.atk*0.62);}
+  if(zone.easy){e.hp=Math.round(e.hp*0.74);e.maxhp=e.hp;e.atk=Math.round(e.atk*0.64);}
   return e;
 }
 function famElementByColor(cName){const ci=BASE.findIndex(b=>b.name===cName);return ELEMENTS[ci];}
@@ -1508,17 +1516,80 @@ function zoneGround(el){const m={
   Aqua:["#b0e8f0","#84d6e0"],Frost:["#d0e7ff","#a6ccf2"],Arcane:["#e2cef6","#c6a6ee"],
   Shadow:["#cccad6","#a6a4b6"],Pale:["#f4efe0","#e4dac4"]}; return m[el]||m.Growth;}
 function nearest(u,arr){let best=null,bd=1e9;for(const t of arr){const d=(t.x-u.x)**2+(t.y-u.y)**2;if(d<bd){bd=d;best=t;}}return best;}
+/* ===== status effects (element-flavored) ===== */
+const STATUS_DEF={
+  burn:  {dot:true, coef:0.15, dur:3.0, max:5, color:"#ff7a4a", ab:"🔥"},
+  poison:{dot:true, coef:0.11, dur:4.0, max:6, color:"#74c85a", ab:"☠"},
+  chill: {dur:2.4, max:4, color:"#7cc0ff", ab:"❄"},
+  drench:{dur:2.4, max:3, color:"#54c9d9", ab:"💧"},
+  dazzle:{dur:2.6, max:3, color:"#ffd23d", ab:"✦"},
+  vuln:  {dur:3.0, max:4, color:"#c79bff", ab:"✷"},
+  weaken:{dur:3.0, max:4, color:"#9aa0ad", ab:"▼"},
+  sunder:{dur:3.0, max:4, color:"#e6dcc2", ab:"◇"},
+  frozen:{dur:0.7, max:1, color:"#bfe6ff", ab:"✸"},
+};
+// each element's on-hit signature
+const ELEMENT_FX={
+  Heat:  {st:"burn"},                 // damage over time
+  Growth:{st:"poison"},               // stacking DoT (ignores armor)
+  Frost: {st:"chill", freezes:true},  // slow; heavy chill → freeze
+  Aqua:  {st:"drench", aoe:0.5},      // slow + splash to a nearby foe
+  Solar: {st:"dazzle"},               // attacker's hits start missing
+  Arcane:{st:"vuln"},                 // takes extra damage
+  Shadow:{st:"weaken", leech:0.25},   // lowers atk + lifesteals
+  Pale:  {st:"sunder"},               // shreds armor
+};
+function applyStatus(t,key,srcAtk){
+  if(!t.status)t.status={};
+  const def=STATUS_DEF[key]; if(!def)return;
+  if(key==="chill"){ const c=t.status.chill; if(c&&c.stacks>=3){ delete t.status.chill; applyStatus(t,"frozen",srcAtk); return; } }
+  let e=t.status[key]; if(!e){ e={stacks:0,t:0,per:0}; t.status[key]=e; }
+  e.stacks=Math.min(def.max,e.stacks+1); e.t=def.dur;
+  if(def.dot)e.per=e.stacks*(srcAtk*def.coef);
+}
+function statusTick(u,dt){ if(!u.status)return 0; let dot=0;
+  for(const k in u.status){ const e=u.status[k]; e.t-=dt; if(e.t<=0){delete u.status[k];continue;}
+    const def=STATUS_DEF[k]; if(def&&def.dot)dot+=e.per*dt; }
+  return dot;
+}
+function statusMods(u){ let slow=0,miss=0,vuln=0,weak=0,sun=0,frozen=false; const s=u.status||{};
+  if(s.chill) slow+=0.13*s.chill.stacks;
+  if(s.drench)slow+=0.10*s.drench.stacks;
+  if(s.dazzle)miss+=0.14*s.dazzle.stacks;
+  if(s.vuln)  vuln+=0.12*s.vuln.stacks;
+  if(s.weaken)weak+=0.12*s.weaken.stacks;
+  if(s.sunder)sun +=0.09*s.sunder.stacks;
+  if(s.frozen)frozen=true;
+  return {slowMul:Math.max(0.4,1-slow), miss:Math.min(0.45,miss), dmgTaken:1+vuln, atkMul:Math.max(0.5,1-weak), sunder:sun, frozen};
+}
+function statusColor(u){ const s=u.status||{}; let best=null,bt=0;
+  for(const k in s){ if(k==="frozen")return STATUS_DEF.frozen.color; if(s[k].t>bt){bt=s[k].t;best=k;} }
+  return best?STATUS_DEF[best].color:null;
+}
+/* ===== role-aware target selection ===== */
+function pickTarget(u,foes){ if(!foes||!foes.length)return null;
+  const melee=u.range==="melee", skirm=u.role==="skirmisher";
+  let best=null,bs=-1e9;
+  for(const f of foes){ if(f.dead)continue; let s=0;
+    s+=(1-f.hp/f.maxhp)*35;                                  // focus the wounded
+    if(f.role==="caster"||f.role==="mender") s+= skirm?48:22; // hunt squishy backline
+    const d=Math.sqrt((f.x-u.x)**2+(f.y-u.y)**2); s-=d*0.10;  // prefer closer
+    if(f.role==="guardian"){ if(melee&&!skirm){ s+= d<90?70:12; } else s-=8; } // taunt holds melee; ranged/flankers slip past
+    if(s>bs){bs=s;best=f;}
+  }
+  return best;
+}
 function makeUnit(f,side,index,total){
   const sizeM=f.sizeM||1;
   const size=Math.round((34+f.tier*5+(f.isBoss?12:0))*sizeM), r=size*0.42, m=30;
   const x=side==="ally"?m+(index%2)*22:STAGE_W-m-(index%2)*22;
   const y=STAGE_H*(index+1)/(total+1);
   const el=document.createElement("div"); el.className="unit "+side+(f.isBoss?" boss":"");
-  el.innerHTML=`<div class="ubar"><i></i></div><img src="${f.art}" width="${size}" height="${size}" class="usprite" onerror="this.style.opacity=0">`;
+  el.innerHTML=`<div class="ubar"><i></i></div><b class="stp"></b><img src="${f.art}" width="${size}" height="${size}" class="usprite" onerror="this.style.opacity=0">`;
   const atkInt=Math.max(0.5,(1.1-f.tier*0.06))*(f.role==="skirmisher"?0.7:f.role==="guardian"?1.15:f.role==="mender"?1.1:1);
-  return Object.assign({},f,{side,x,y,r,size,el,bar:el.querySelector("i"),sprite:el.querySelector(".usprite"),
+  return Object.assign({},f,{side,x,y,r,size,el,bar:el.querySelector("i"),pip:el.querySelector(".stp"),sprite:el.querySelector(".usprite"),
     cd:Math.random()*0.5, atkInt, spdpx:(30+f.tier*5+(f.level||1)*0.3)*(f.spdM||1),
-    dead:false, facing:side==="ally"?1:-1, lunge:0, target:null});
+    dead:false, facing:side==="ally"?1:-1, lunge:0, target:null, status:{}, _tt:0, _flank:0});
 }
 function playExpedition(zone){
   if(S.pets.length<3){toast("Befriend a full team of 3 first! 🍳");S.tab="cook";render();return;}
@@ -1560,9 +1631,23 @@ function playExpedition(zone){
   function clampPos(u){u.x=Math.max(u.r,Math.min(STAGE_W-u.r,u.x)); u.y=Math.max(u.r,Math.min(STAGE_H-u.r,u.y));}
   function spawnWave(){
     units=units.filter(u=>{ if(u.side==="foe"&&u.dead){u.el.remove();return false;} return true; });
-    const isBoss=(waveIdx===sub.waves-1)&&sub.isFinal, count=isBoss?1:(zone.easy?1+rint(2):(zone.lvl<6?1+rint(2):2+rint(2)));
-    for(let i=0;i<count;i++){const u=makeUnit(makeEnemy(run,waveIdx,isBoss&&i===0),"foe",i,count); units.push(u); stage.appendChild(u.el);}
-    const wt=$("waveTag"); if(wt)wt.textContent=`Wave ${waveIdx+1}/${sub.waves}`+(isBoss?" — BOSS! 👑":"");
+    const lastWave=(waveIdx===sub.waves-1);
+    let count, bossWave=false, swarm=false;
+    if(sub.horde){
+      swarm=true; count=lastWave?(6+rint(3)):(5+rint(2));
+    } else if(lastWave && sub.isFinal){
+      bossWave=true; count=1+(zone.easy?0:(1+rint(2)));   // boss + 1-2 escorts
+    } else {
+      const base = zone.easy?2 : (zone.lvl<6?2 : zone.lvl<16?3 : 4);
+      count = base + rint(2);                              // often even or slightly outnumbering
+    }
+    for(let i=0;i<count;i++){
+      const boss=bossWave&&i===0;
+      const u=makeUnit(makeEnemy(run,waveIdx,boss,swarm&&!boss),"foe",i,count);
+      units.push(u); stage.appendChild(u.el);
+    }
+    const wt=$("waveTag");
+    if(wt)wt.textContent=`Wave ${waveIdx+1}/${sub.waves}`+(bossWave?" — BOSS! 👑":sub.horde?" — SWARM! 🐝":"");
   }
   function popText(t,txt,color,big){
     if(fast||!t.el)return;
@@ -1586,21 +1671,35 @@ function playExpedition(zone){
     requestAnimationFrame(()=>{ d.style.transform=`translate(-50%,-50%) translate(${dx}px,${dy}px)`; });
     setTimeout(()=>d.remove(),260);
   }
-  function dealDamage(u,t){
-    if(t.dodge && chance(t.dodge)){ popText(t,"dodge","#7a8aa8"); return; }
+  function killUnit(t){ if(t.dead)return; t.dead=true; if(t.el)t.el.classList.add("udown"); if(t.side==="foe")foeKills++; t.target=null; }
+  function rollMiss(u,M){ if(M&&M.miss>0&&chance(M.miss)){ if(!fast)popText(u,"miss","#cdb18a"); return true; } return false; }
+  function dealDamage(u,t,aoe){
+    if(t.dead)return;
+    const Mt=statusMods(t), Mu=statusMods(u);
+    if(!aoe && t.dodge && chance(t.dodge)){ if(!fast)popText(t,"dodge","#7a8aa8"); return; }
     const em=eleMult(u.el,t.el);
-    const crit=chance(0.12+(u.critBonus||0)+u.tier*0.01);
-    let dmg=u.atk*em*(0.85+Math.random()*0.3)*(crit?1.7:1)*(1+(u.dmgAmp||0))-t.tier*2;
-    dmg*=(1-(t.reduce||0));
+    const crit=!aoe && chance(0.10+(u.critBonus||0)+u.tier*0.01);
+    let dmg=u.atk*Mu.atkMul*em*(0.85+Math.random()*0.3)*(crit?1.7:1)*(1+(u.dmgAmp||0));
+    dmg*=Mt.dmgTaken;
+    const reduce=Math.max(0,(t.reduce||0)-Mt.sunder);
+    dmg=dmg*(1-reduce)-t.tier*1.5;
+    if(aoe)dmg*=aoe;
     dmg=Math.max(1,Math.round(dmg));
     t.hp-=dmg;
-    if(u.lifesteal && u.hp>0 && u.hp<u.maxhp){const heal=Math.max(1,Math.round(dmg*u.lifesteal)); u.hp=Math.min(u.maxhp,u.hp+heal); if(!fast)popText(u,"+"+heal,"#2e9c5e");}
-    if(u.range==="melee"){ u.lunge=0.16; const a=Math.atan2(t.y-u.y,t.x-u.x); t.x+=Math.cos(a)*5; t.y+=Math.sin(a)*5; clampPos(t); }
+    const fx=ELEMENT_FX[u.el];
+    if(fx && !aoe){
+      if(fx.st)applyStatus(t,fx.st,u.atk);
+      if(fx.leech && u.hp>0 && u.hp<u.maxhp){const hl=Math.max(1,Math.round(dmg*fx.leech));u.hp=Math.min(u.maxhp,u.hp+hl);if(!fast)popText(u,"+"+hl,"#2e9c5e");}
+    }
+    if(u.lifesteal && u.hp>0 && u.hp<u.maxhp){const hl=Math.max(1,Math.round(dmg*u.lifesteal));u.hp=Math.min(u.maxhp,u.hp+hl);if(!fast)popText(u,"+"+hl,"#2e9c5e");}
+    if(!aoe && u.range==="melee"){ u.lunge=0.16; const a=Math.atan2(t.y-u.y,t.x-u.x); t.x+=Math.cos(a)*5; t.y+=Math.sin(a)*5; clampPos(t); }
     if(!fast){ sfx("hit");
       popText(t, dmg+(crit?"!":""), crit?"#ffd23d":em>1?"#9fe3ff":"#fff", crit);
       t.el.classList.add("uhurt"); setTimeout(()=>{if(t.el)t.el.classList.remove("uhurt");},170);
       spawnImpact(t, ELECOLOR[u.el]||"#fff"); }
-    if(t.hp<=0 && !t.dead){ t.dead=true; t.el.classList.add("udown"); if(t.side==="foe")foeKills++; }
+    if(t.hp<=0 && !t.dead) killUnit(t);
+    // Aqua splash to a nearby enemy of the target
+    if(fx && fx.aoe && !aoe){ const others=alive(t.side).filter(x=>x!==t); const n=others.length?nearest(t,others):null; if(n)dealDamage(u,n,fx.aoe); }
   }
   function attack(u,t){
     u.facing=t.x>=u.x?1:-1;
@@ -1615,33 +1714,56 @@ function playExpedition(zone){
   function step(dt){
     battleT+=dt;
     if(phase==="fight"){
+      const A=alive("ally"), F=alive("foe");
       for(const u of units){ if(u.dead)continue;
+        const dot=statusTick(u,dt);
+        if(dot>0){ u.hp-=dot; if(u.hp<=0){ killUnit(u); continue; } }
+        const M=statusMods(u);
         if(u.cd>0)u.cd-=dt; if(u.lunge>0)u.lunge-=dt;
-        // Menders: seek and heal the most-wounded ally first
+        if(M.frozen) continue; // can't act while frozen
+        const foes = u.side==="ally"?F:A, mates = u.side==="ally"?A:F;
+        const spd = u.spdpx*M.slowMul;
+        // ---- Mender: hang back, heal the worst-wounded, flee danger ----
         if(u.healer){
-          let wounded=null,worst=0.85;
-          for(const a of alive(u.side)){const ratio=a.hp/a.maxhp; if(ratio<worst){worst=ratio;wounded=a;}}
-          if(wounded){
-            const dx=wounded.x-u.x,dy=wounded.y-u.y,dist=Math.hypot(dx,dy)||0.01;
-            if(dist>72){const v=u.spdpx*dt;u.x+=dx/dist*v;u.y+=dy/dist*v;u.facing=dx>=0?1:-1;clampPos(u);}
-            else if(u.cd<=0){u.cd=u.atkInt*1.2; healAlly(u,wounded);}
-            continue;
-          }
+          let wounded=null,worst=0.80;
+          for(const a of mates){const r=a.hp/a.maxhp; if(r<worst){worst=r;wounded=a;}}
+          const threat=foes.length?nearest(u,foes):null;
+          const td=threat?Math.hypot(threat.x-u.x,threat.y-u.y):1e9;
+          if(threat&&td<54){ const a=Math.atan2(u.y-threat.y,u.x-threat.x); u.x+=Math.cos(a)*spd*dt;u.y+=Math.sin(a)*spd*dt;u.facing=Math.cos(a)>=0?1:-1;clampPos(u); }
+          else if(wounded){ const dx=wounded.x-u.x,dy=wounded.y-u.y,d=Math.hypot(dx,dy)||0.01;
+            if(d>70){u.x+=dx/d*spd*dt;u.y+=dy/d*spd*dt;u.facing=dx>=0?1:-1;clampPos(u);}
+            else if(u.cd<=0){u.cd=u.atkInt*1.25; healAlly(u,wounded);} }
+          else if(threat){ const dx=threat.x-u.x,dy=threat.y-u.y,d=Math.hypot(dx,dy)||0.01;
+            if(d>100){u.x+=dx/d*spd*dt;u.y+=dy/d*spd*dt;u.facing=dx>=0?1:-1;clampPos(u);}
+            else if(u.cd<=0){u.cd=u.atkInt; if(!rollMiss(u,M))attack(u,threat);} }
+          continue;
         }
-        if(!u.target||u.target.dead){const en=alive(u.side==="ally"?"foe":"ally"); u.target=en.length?nearest(u,en):null;}
+        // ---- target selection (taunt / backline focus) ----
+        u._tt-=dt;
+        if(!u.target||u.target.dead||u._tt<=0){ u.target=pickTarget(u,foes); u._tt=0.6; }
         const t=u.target; if(!t)continue;
-        const dx=t.x-u.x,dy=t.y-u.y,dist=Math.hypot(dx,dy)||0.01;
+        const dx=t.x-u.x,dy=t.y-u.y,d=Math.hypot(dx,dy)||0.01;
         if(u.range==="ranged"){
-          const want=92;
-          if(dist>want){const v=u.spdpx*dt;u.x+=dx/dist*v;u.y+=dy/dist*v;u.facing=dx>=0?1:-1;clampPos(u);}
-          else if(dist<want*0.6){const v=u.spdpx*dt*0.8;u.x-=dx/dist*v;u.y-=dy/dist*v;u.facing=dx>=0?1:-1;clampPos(u);}
-          else { u.facing=dx>=0?1:-1; if(u.cd<=0){u.cd=u.atkInt;attack(u,t);} }
+          // ---- Caster: kite & shelter behind frontline allies ----
+          const want=96, threat=foes.length?nearest(u,foes):null;
+          const thd=threat?Math.hypot(threat.x-u.x,threat.y-u.y):1e9;
+          if(threat&&thd<want*0.7){
+            const a=Math.atan2(u.y-threat.y,u.x-threat.x); u.x+=Math.cos(a)*spd*dt;u.y+=Math.sin(a)*spd*dt; clampPos(u);
+            const guard=mates.find(m=>m!==u&&!m.dead&&(m.role==="guardian"||m.role==="bruiser"));
+            if(guard) u.y+=Math.sign(guard.y-u.y)*spd*dt*0.35;
+            u.facing=t.x>=u.x?1:-1; clampPos(u);
+          } else if(d>want){ u.x+=dx/d*spd*dt;u.y+=dy/d*spd*dt;u.facing=dx>=0?1:-1;clampPos(u); }
+          else { u.facing=dx>=0?1:-1; if(u.cd<=0){u.cd=u.atkInt/Math.max(0.6,M.slowMul); if(!rollMiss(u,M))attack(u,t);} }
         } else {
-          const range=u.r+t.r+4;
-          if(dist>range){const v=u.spdpx*dt;u.x+=dx/dist*v;u.y+=dy/dist*v;u.facing=dx>=0?1:-1;clampPos(u);}
-          else if(u.cd<=0){u.cd=u.atkInt;attack(u,t);}
+          // ---- Melee: bruiser/guardian charge; skirmisher flanks with a vertical offset ----
+          let aimx=t.x, aimy=t.y;
+          if(u.role==="skirmisher"){ if(!u._flank)u._flank=Math.random()<0.5?-1:1; aimy=t.y+u._flank*26; }
+          const adx=aimx-u.x,ady=aimy-u.y,ad=Math.hypot(adx,ady)||0.01, range=u.r+t.r+4;
+          if(d>range){ u.x+=adx/ad*spd*dt;u.y+=ady/ad*spd*dt;u.facing=dx>=0?1:-1;clampPos(u); }
+          else if(u.cd<=0){u.cd=u.atkInt/Math.max(0.6,M.slowMul); if(!rollMiss(u,M))attack(u,t);}
         }
       }
+      // separation between same-side units
       for(let i=0;i<units.length;i++)for(let j=i+1;j<units.length;j++){
         const a=units[i],b=units[j]; if(a.dead||b.dead||a.side!==b.side)continue;
         const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||0.01,min=a.r+b.r;
@@ -1649,14 +1771,14 @@ function playExpedition(zone){
       }
       if(!alive("foe").length){
         if(waveIdx>=sub.waves-1){ end(true); }
-        else { allies.forEach(a=>{ if(a.dead){a.dead=false;a.hp=Math.round(a.maxhp*0.35);a.el.classList.remove("udown");}
+        else { allies.forEach(a=>{ if(a.dead){a.dead=false;a.hp=Math.round(a.maxhp*0.35);a.el.classList.remove("udown");a.status={};}
                                    else a.hp=Math.min(a.maxhp,a.hp+Math.round(a.maxhp*0.55)); });
                const wt=$("waveTag"); if(wt)wt.textContent="Wave cleared! 🌿"; phase="heal"; phaseT=0; }
       } else if(!alive("ally").length){ end(false); }
     } else if(phase==="heal"){
       phaseT+=dt; if(phaseT>(fast?0.001:1.0)){ waveIdx++; spawnWave(); phase="fight"; }
     }
-    if(phase==="fight" && battleT>75){ end(alive("ally").reduce((s,u)=>s+u.hp,0) >= alive("foe").reduce((s,u)=>s+u.hp,0)); }
+    if(phase==="fight" && battleT>82){ end(alive("ally").reduce((s,u)=>s+u.hp,0) >= alive("foe").reduce((s,u)=>s+u.hp,0)); }
   }
   function draw(){
     for(const u of units){
@@ -1667,6 +1789,8 @@ function playExpedition(zone){
       u.el.style.zIndex=Math.round(u.y);
       u.sprite.style.transform=`scaleX(${u.facing})`;
       u.bar.style.width=Math.max(0,u.hp/u.maxhp*100)+"%";
+      if(u.pip){ const c=statusColor(u); if(c){u.pip.style.background=c;u.pip.style.opacity=1;u.pip.style.boxShadow="0 0 5px "+c;} else u.pip.style.opacity=0; }
+      if(u.sprite){ u.sprite.style.filter = (u.status&&u.status.frozen)?"brightness(1.3) saturate(0.4) drop-shadow(0 0 3px #bfe6ff)":""; }
     }
   }
   function end(win){ if(ended)return; ended=true; if(raf)cancelAnimationFrame(raf); draw();
