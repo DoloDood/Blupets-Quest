@@ -216,12 +216,14 @@
   .bits-row{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:6px 0 12px}
   .bit{display:flex;flex-direction:column;align-items:center;gap:3px;font-family:var(--px);font-size:8px}
   .bit .dot{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);box-shadow:1px 1px 0 var(--shadow)}
-  .color-pick{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:8px 0}
+  .color-pick{display:flex;flex-wrap:wrap;gap:16px 8px;justify-content:center;margin:8px 0 10px}
   .cpick{width:40px;height:40px;border-radius:12px;border:3px solid var(--line);cursor:pointer;
     box-shadow:2px 2px 0 var(--shadow);position:relative}
   .cpick.sel{outline:3px solid var(--ink);outline-offset:2px}
   .cpick .ct{position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);font-family:var(--px);
     font-size:7px;background:var(--cream);border:2px solid var(--line);border-radius:6px;padding:1px 3px}
+  .cpick .cn{position:absolute;top:-9px;right:-7px;font-family:var(--px);font-size:7px;color:#fff;
+    background:var(--ink);border:2px solid var(--cream);border-radius:8px;padding:1px 4px;line-height:1;z-index:1}
 
   .pot-big{width:120px;height:96px;margin:6px auto 4px;position:relative}
   .pot-body{position:absolute;bottom:0;left:10px;right:10px;height:70px;background:#6b6e7e;
@@ -531,14 +533,15 @@ let S=null;
 /* auth + cloud state */
 const SUPA_URL="https://mzabzzfnwuqgkarrxyrm.supabase.co";
 const SUPA_KEY="sb_publishable_aAYGidy8P0_0peoJ0xn-Jg_OxT5Bbme";
-let sbc=null, authUser=null, isGuest=false, cloudTimer=null, lbStat="mobs";
+let sbc=null, authUser=null, isGuest=false, cloudTimer=null, lbStat="mobs", lbView="today";
 function freshState(){
   return {ver:1, started:false, pixels:60, energy:16, maxEnergy:16, lastTs:Date.now(),
     bits:{Red:6,Yellow:4,Green:6,Cyan:3,Blue:6,Purple:3,Black:2,White:2},
     pets:[], party:[], stones:[], dust:0, dex:{}, progress:{}, tab:"camp", music:true,
     cookTab:"cook", cookRole:"any", cookPremium:false, tradeFrom:"Red", tradeTo:"Blue",
     prep:{snack:false,tonic:false,focus:false}, decorOwned:{}, decor:{}, decorPos:{},
-    stats:{mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0}, username:null};
+    stats:{mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0}, username:null,
+    lb:{day:null,week:null,dayStats:{},weekStats:{}}};
 }
 function migrateState(){
   let mx=0;(S.pets||[]).forEach(p=>{const n=parseInt((p.iid||"p0").slice(1))||0; if(n>mx)mx=n;}); IID=mx+1;
@@ -548,6 +551,7 @@ function migrateState(){
   if(!S.prep)S.prep={snack:false,tonic:false,focus:false};
   if(!S.decorOwned)S.decorOwned={}; if(!S.decor)S.decor={}; if(!S.decorPos)S.decorPos={};
   if(!S.stats)S.stats={mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0};
+  if(!S.lb)S.lb={day:null,week:null,dayStats:{},weekStats:{}};
   if(S.username===undefined)S.username=null;
   (S.pets||[]).forEach(p=>{ if(p.bond==null)p.bond=0; });
   if(!S.progress){S.progress={}; const c=S.cleared||0; for(let i=0;i<c&&i<ZONES.length;i++)S.progress[ZONES[i].id]=ZONES[i].stages;}
@@ -559,8 +563,23 @@ function load(){
   try{const raw=localStorage.getItem(SAVE_KEY); if(raw){S=JSON.parse(raw); migrateState(); return;}}catch(e){}
   S=freshState();
 }
-function bumpStat(k,n){ if(!S.stats)S.stats={mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0};
-  S.stats[k]=(S.stats[k]||0)+(n==null?1:n); }
+function bumpStat(k,n){ n=(n==null?1:n); if(!S.stats)S.stats={mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0};
+  S.stats[k]=(S.stats[k]||0)+n;
+  if(!isGuest){ rolloverCheck(); if(S.lb){ S.lb.dayStats[k]=(S.lb.dayStats[k]||0)+n; S.lb.weekStats[k]=(S.lb.weekStats[k]||0)+n; } }
+}
+/* period keys in US Eastern (America/New_York), week = Monday→Sunday */
+function njDayStr(d){ try{ return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(d); }catch(e){ return d.toISOString().slice(0,10); } }
+function njWeekdayIdx(d){ const wd=(()=>{try{return new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short'}).format(d);}catch(e){return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()];}})();
+  return {Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6}[wd]; }
+function fmtKey(y,m,dd){const z=n=>String(n).padStart(2,'0');return y+'-'+z(m)+'-'+z(dd);}
+function addDaysKey(key,delta){ const [Y,M,D]=key.split('-').map(Number); const b=new Date(Date.UTC(Y,M-1,D)); b.setUTCDate(b.getUTCDate()+delta); return fmtKey(b.getUTCFullYear(),b.getUTCMonth()+1,b.getUTCDate()); }
+function mondayKey(d){ const day=njDayStr(d); return addDaysKey(day, -njWeekdayIdx(d)); }
+function periodKeys(){ const now=new Date(); return {day:njDayStr(now), week:mondayKey(now)}; }
+function rolloverCheck(){ const k=periodKeys();
+  if(!S.lb){ S.lb={day:k.day,week:k.week,dayStats:{},weekStats:{}}; return; }
+  if(S.lb.day!==k.day){ S.lb.day=k.day; S.lb.dayStats={}; }
+  if(S.lb.week!==k.week){ S.lb.week=k.week; S.lb.weekStats={}; }
+}
 function highestZoneCleared(){ let hi=0; ZONES.forEach((z,i)=>{ if((S.progress&&S.progress[z.id]||0)>=z.stages) hi=i+1; }); return hi; }
 function highestPetLevel(){ return (S.pets||[]).reduce((m,p)=>Math.max(m,p.level||1),0); }
 function save(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(S));}catch(e){}
@@ -942,10 +961,13 @@ function vCamp(){
 function bitsRowHTML(){
   return `<div class="bits-row">`+BASE.map(b=>`<div class="bit"><span class="dot" style="background:${b.hex}"></span>${S.bits[b.name]||0}</div>`).join("")+`</div>`;
 }
-function colorChips(actName, dataKey, selectedVal, minBits){
+function colorChips(actName, dataKey, selectedVal, minBits, showCount){
   return `<div class="color-pick">`+BASE.map(b=>{
-    const dim=(minBits!=null && (S.bits[b.name]||0)<minBits)?'opacity:.4':'';
-    return `<div class="cpick ${selectedVal===b.name?'sel':''}" data-act="${actName}" data-${dataKey}="${b.name}" style="background:${b.hex};${dim}"><span class="ct">${b.name}</span></div>`;
+    const have=S.bits[b.name]||0;
+    const dim=(minBits!=null && have<minBits)?'opacity:.4':'';
+    return `<div class="cpick ${selectedVal===b.name?'sel':''}" data-act="${actName}" data-${dataKey}="${b.name}" style="background:${b.hex};${dim}">`+
+      (showCount?`<span class="cn">${have}</span>`:'')+
+      `<span class="ct">${b.name}</span></div>`;
   }).join("")+`</div>`;
 }
 function vCook(){
@@ -955,9 +977,9 @@ function vCook(){
     <button class="btn sm ${tab==='trade'?'on':''}" data-act="cooktab" data-ct="trade">🔄 Trade</button>
     <button class="btn sm ${tab==='brew'?'on':''}" data-act="cooktab" data-ct="brew">🧪 Brew</button></div>`;
   const head=`${guideBanner()}<h2 class="title">🍳 Cook Pot</h2>
-    <p class="sub">💠 ${S.dust} Stardust · ✦ ${S.pixels} Pixels — your Bits:</p>${bitsRowHTML()}${seg}`;
-  if(tab==='trade') return head+vTrade();
-  if(tab==='brew')  return head+vBrew();
+    <p class="sub">💠 ${S.dust} Stardust · ✦ ${S.pixels} Pixels</p>${seg}`;
+  if(tab==='trade') return head+`<div class="muted center" style="margin:8px 0 2px">Your Bits:</div>${bitsRowHTML()}`+vTrade();
+  if(tab==='brew')  return head+`<div class="muted center" style="margin:8px 0 2px">Your Bits:</div>${bitsRowHTML()}`+vBrew();
   return head+vCookMain();
 }
 function vCookMain(){
@@ -972,8 +994,8 @@ function vCookMain(){
   <p class="sub">Pick a color, then choose what kind of Blupet to lure. Targeting a role costs more Bits; a Choice recipe spends Stardust for a level-5 start.</p>
   <div class="card center">
     <div class="pot-big"><div class="pot-lid"></div><div class="pot-body"></div></div>
-    <div class="muted" style="margin-bottom:4px">Flavor (color):</div>
-    ${colorChips('cooksel','c',sel,bitCost)}
+    <div class="muted" style="margin-bottom:8px">Flavor (color) — number shows Bits you have:</div>
+    ${colorChips('cooksel','c',sel,bitCost,true)}
     <div class="muted" style="margin:10px 0 0">Recipe (role):</div>
     ${roleBtns}
     <label style="display:flex;align-items:center;justify-content:center;gap:8px;margin:4px 0 10px;cursor:pointer" data-act="cookpremium">
@@ -1857,12 +1879,19 @@ function initSupa(){
 function cloudSaveNow(){ if(isGuest||!sbc||!authUser)return;
   try{ sbc.from("game_saves").upsert({user_id:authUser.id,state:S,updated_at:new Date().toISOString()}).then(()=>{},()=>{}); }catch(e){} }
 function syncLeaderboard(){ if(isGuest||!sbc||!authUser||!S.username)return;
-  const st=S.stats||{};
-  try{ sbc.from("leaderboard").upsert({user_id:authUser.id, username:S.username,
-    mobs:st.mobs||0,bosses:st.bosses||0,pets:st.pets||0,evolutions:st.evolutions||0,
-    expeditions:st.expeditions||0, highest_zone:highestZoneCleared(), highest_level:highestPetLevel(),
-    updated_at:new Date().toISOString()}).then(()=>{},()=>{}); }catch(e){} }
-function enterGame(){ regenEnergy(); statbar(); renderTabs(); if(S.started)render(); else startFlow(); }
+  rolloverCheck();
+  const st=S.stats||{}, lb=S.lb||{dayStats:{},weekStats:{}}, now=new Date().toISOString();
+  const base={user_id:authUser.id, username:S.username, updated_at:now};
+  try{ sbc.from("leaderboard").upsert({...base,
+      mobs:st.mobs||0,bosses:st.bosses||0,pets:st.pets||0,evolutions:st.evolutions||0,
+      expeditions:st.expeditions||0, highest_zone:highestZoneCleared(), highest_level:highestPetLevel()}).then(()=>{},()=>{}); }catch(e){}
+  const d=lb.dayStats||{}, w=lb.weekStats||{};
+  try{ sbc.from("lb_daily").upsert({...base, period:lb.day,
+      mobs:d.mobs||0,bosses:d.bosses||0,pets:d.pets||0,evolutions:d.evolutions||0,expeditions:d.expeditions||0}).then(()=>{},()=>{}); }catch(e){}
+  try{ sbc.from("lb_weekly").upsert({...base, period:lb.week,
+      mobs:w.mobs||0,bosses:w.bosses||0,pets:w.pets||0,evolutions:w.evolutions||0,expeditions:w.expeditions||0}).then(()=>{},()=>{}); }catch(e){}
+}
+function enterGame(){ if(!isGuest)rolloverCheck(); regenEnergy(); statbar(); renderTabs(); if(S.started)render(); else startFlow(); }
 function playAsGuest(){ isGuest=true; authUser=null; load(); enterGame(); }
 async function enterLoggedIn(){
   isGuest=false;
@@ -1950,41 +1979,92 @@ async function doMagicLink(){
     if(msg)msg.innerHTML="✅ Check your email for a sign-in link! Click it and you'll land back here, signed in.";
   }catch(e){ if(msg)msg.textContent="Network error — try again, or play as guest."; }
 }
-const LB_STATS=[["mobs","Mobs"],["bosses","Bosses"],["pets","Pets"],["evolutions","Evolves"],["expeditions","Runs"],["highest_zone","Zone"],["highest_level","Level"]];
+const LB_VIEWS=[["today","Today"],["yesterday","Yesterday"],["week","This Week"],["lastweek","Last Week"],["alltime","All-Time"]];
+const LB_COUNT_STATS=[["mobs","Mobs"],["bosses","Bosses"],["pets","Pets"],["evolutions","Evolves"],["expeditions","Runs"]];
+const LB_ALL_STATS=[...LB_COUNT_STATS,["highest_zone","Zone"],["highest_level","Level"]];
+function lbStatsFor(view){ return view==="alltime"?LB_ALL_STATS:LB_COUNT_STATS; }
+function lbTarget(view){ // {table, period|null}
+  const k=periodKeys();
+  if(view==="today")    return {table:"lb_daily",  period:k.day};
+  if(view==="yesterday")return {table:"lb_daily",  period:addDaysKey(k.day,-1)};
+  if(view==="week")     return {table:"lb_weekly", period:k.week};
+  if(view==="lastweek") return {table:"lb_weekly", period:addDaysKey(k.week,-7)};
+  return {table:"leaderboard", period:null};
+}
+function lbResetNote(view){
+  if(view==="today")return "Resets at midnight (Eastern).";
+  if(view==="week")return "Resets Sunday midnight (Eastern).";
+  if(view==="yesterday")return "Final results for yesterday.";
+  if(view==="lastweek")return "Final results for last week.";
+  return "All-time totals.";
+}
 function showLeaderboard(){
   syncLeaderboard();
   const needName = !isGuest && authUser && !S.username;
+  if(!lbStatsFor(lbView).some(([k])=>k===lbStat))lbStat="mobs";
   const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
     <div class="center" style="font-size:30px">🏆</div>
     <h2 class="title center">Leaderboard</h2>
-    <div id="lbTabs" class="lbtabs"></div>
-    <div id="lbBody" class="muted center" style="margin-top:10px;min-height:60px">Loading…</div>
+    <div id="lbViews" class="lbtabs"></div>
+    <div id="lbTabs" class="lbtabs" style="margin-top:6px"></div>
+    <div id="lbNote" class="muted center" style="font-size:10px;margin-top:6px"></div>
+    <div id="lbBody" class="muted center" style="margin-top:8px;min-height:60px">Loading…</div>
     ${needName?`<button class="btn mint" data-act="setname" style="width:100%;margin-top:8px">Choose a name to join</button>`:""}
     ${isGuest?`<p class="muted center" style="font-size:11px;margin-top:8px">Playing as guest — <button class="linkbtn" data-act="gotologin">sign in</button> to appear here.</p>`:""}
     <button class="btn ghost" data-act="closeoverlay" style="width:100%;margin-top:10px">Close</button>
   </div></div>`);
   document.body.appendChild(ov);
-  renderLbTabs(ov); loadLb(ov);
+  renderLbViews(ov); renderLbTabs(ov); loadLb(ov);
+}
+function renderLbViews(ov){
+  const t=ov.querySelector("#lbViews"); if(!t)return;
+  t.innerHTML=LB_VIEWS.map(([k,lb])=>`<button class="lbtab ${lbView===k?'on':''}" data-lv="${k}">${lb}</button>`).join("");
+  t.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{ lbView=b.dataset.lv;
+    if(!lbStatsFor(lbView).some(([k])=>k===lbStat))lbStat="mobs";
+    renderLbViews(ov); renderLbTabs(ov); loadLb(ov); });
 }
 function renderLbTabs(ov){
   const t=ov.querySelector("#lbTabs"); if(!t)return;
-  t.innerHTML=LB_STATS.map(([k,lb])=>`<button class="lbtab ${lbStat===k?'on':''}" data-lb="${k}">${lb}</button>`).join("");
+  t.innerHTML=lbStatsFor(lbView).map(([k,lb])=>`<button class="lbtab ${lbStat===k?'on':''}" data-lb="${k}">${lb}</button>`).join("");
   t.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{ lbStat=b.dataset.lb; renderLbTabs(ov); loadLb(ov); });
+  const note=ov.querySelector("#lbNote"); if(note)note.textContent=lbResetNote(lbView);
 }
 async function loadLb(ov){
   const body=ov.querySelector("#lbBody"); if(!body)return; body.textContent="Loading…";
   if(!sbc){ body.textContent="Leaderboard is offline right now."; return; }
+  const {table,period}=lbTarget(lbView); const stat=lbStat;
   try{
-    const {data,error}=await sbc.from("leaderboard").select("username,"+lbStat).order(lbStat,{ascending:false}).limit(50);
+    let q=sbc.from(table).select("user_id,username,"+stat).order(stat,{ascending:false}).limit(50);
+    if(period)q=q.eq("period",period);
+    const {data,error}=await q;
     if(error){ body.textContent="Couldn't load: "+error.message; return; }
-    if(!data||!data.length){ body.textContent="No scores yet — be the first on the board!"; return; }
+    if(!data||!data.length){ body.innerHTML=`<div style="padding:10px 0">No scores yet — be the first!</div>`; return; }
+    const myId=authUser&&authUser.id;
     const rows=data.map((r,i)=>{
-      const me=authUser&&S.username&&r.username===S.username;
+      const me=myId&&r.user_id===myId;
       const medal=i===0?"🥇":i===1?"🥈":i===2?"🥉":(i+1);
       return `<div class="lbrow${me?' me':''}"><span class="lbrank">${medal}</span>
-        <span class="lbname">${esc(r.username)}</span><span class="lbval">${r[lbStat]}</span></div>`;
+        <span class="lbname">${esc(r.username)}</span><span class="lbval">${r[stat]||0}</span></div>`;
     }).join("");
-    body.innerHTML=`<div class="lblist">${rows}</div>`;
+    let mine="";
+    const inTop = myId && data.some(r=>r.user_id===myId);
+    if(myId && S.username && !inTop){
+      // fetch own value + rank
+      try{
+        let oq=sbc.from(table).select(stat).eq("user_id",myId); if(period)oq=oq.eq("period",period);
+        const {data:od}=await oq.maybeSingle();
+        const myVal=od?(od[stat]||0):0;
+        if(myVal>0){
+          let cq=sbc.from(table).select("*",{count:"exact",head:true}).gt(stat,myVal); if(period)cq=cq.eq("period",period);
+          const {count}=await cq;
+          mine=`<div class="lbrow me" style="margin-top:8px"><span class="lbrank">${(count||0)+1}</span>
+            <span class="lbname">${esc(S.username)} (you)</span><span class="lbval">${myVal}</span></div>`;
+        } else {
+          mine=`<div class="muted center" style="margin-top:8px;font-size:11px">You're not on this board yet — play to climb!</div>`;
+        }
+      }catch(e){}
+    }
+    body.innerHTML=`<div class="lblist">${rows}</div>${mine}`;
   }catch(e){ body.textContent="Network error loading the board."; }
 }
 async function bootAuth(){
