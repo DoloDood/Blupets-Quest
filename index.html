@@ -99,7 +99,11 @@
   .ledge{position:absolute;bottom:0;left:0;right:0;height:42%;
     background:repeating-linear-gradient(90deg,#bfe89a 0 16px,#b6e28f 16px 32px)}
   .party-stage{position:absolute;bottom:8%;left:0;right:0;display:flex;justify-content:center;
-    align-items:flex-end;gap:10px;padding:0 10px}
+    align-items:flex-end;gap:10px;padding:0 10px;z-index:3}
+  .roam-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:1}
+  .roamer{position:absolute;will-change:transform,left;opacity:.8;filter:saturate(.9) brightness(.97);
+    transform-origin:center bottom}
+  .roamer img,.roamer svg{display:block}
   .pot{position:absolute;bottom:8%;left:12px;width:40px;height:30px;background:#6b6e7e;
     border:3px solid var(--line);border-radius:6px 6px 10px 10px}
   .pot:before{content:"";position:absolute;top:-9px;left:-4px;right:-4px;height:8px;
@@ -1053,6 +1057,56 @@ function merchantBuy(i){
 }
 function merchantLeave(){ merchantHere=false; closeOverlay(); render(); }
 
+/* ---------- background roaming pets (non-party) ---------- */
+let roamers=[], roamRAF=null, roamLast=0, roamDirectorT=0, roamLayerEl=null;
+function roamPool(){ return S.pets.filter(p=>!S.party.includes(p.iid)); }
+function initRoamers(){
+  roamLayerEl=document.getElementById("roamLayer"); if(!roamLayerEl)return;
+  roamLayerEl.innerHTML=""; roamers=[];
+  const pool=roamPool(); const N=Math.min(8,pool.length);
+  const chosen=pool.slice().sort(()=>Math.random()-0.5).slice(0,N);
+  chosen.forEach((p,i)=>{
+    const el=document.createElement("div"); el.className="roamer"; el.innerHTML=petArtHTML(p,34);
+    const top=56+Math.random()*12; el.style.top=top.toFixed(1)+"%"; el.style.zIndex=Math.round(top);
+    roamLayerEl.appendChild(el);
+    const vx=(Math.random()<0.5?-1:1)*(3+Math.random()*4);
+    roamers.push({el, x:6+(i/Math.max(1,N))*86+Math.random()*6, vx, facing:Math.sign(vx)||1,
+      mode:"walk", seed:Math.random()*6, scale:0.55+Math.random()*0.12, bob:0, playT:0});
+  });
+  roamDirectorT=0;
+}
+function roamDirector(now){
+  if(now<roamDirectorT || !roamers.length)return;
+  roamDirectorT=now+(4000+Math.random()*5000);
+  const rs=roamers, mood=pick(["parade","parade","cross","play","scatter"]);
+  if(mood==="parade"){ const dir=Math.random()<0.5?-1:1, spd=5+Math.random()*4;
+    rs.forEach(r=>{ r.mode="walk"; r.vx=dir*spd*(0.85+Math.random()*0.3); r.facing=dir; });
+  } else if(mood==="cross"){ rs.forEach(r=>{ r.mode="pause"; r.vx*=0.2; });
+    const n=1+(Math.random()<0.5?1:0);
+    for(let k=0;k<n;k++){ const r=pick(rs); const dir=Math.random()<0.5?-1:1; r.mode="walk"; r.vx=dir*(9+Math.random()*4); r.facing=dir; }
+  } else if(mood==="play" && rs.length>=2){ rs.forEach(r=>{ r.mode="pause"; r.vx*=0.3; });
+    const a=pick(rs); const others=rs.filter(x=>x!==a); const b=pick(others);
+    if(b){ a.mode=b.mode="play"; a.playT=b.playT=2400+Math.random()*2000; a.facing=(b.x>a.x)?1:-1; b.facing=-a.facing; }
+  } else { rs.forEach(r=>{ r.mode="walk"; const dir=Math.random()<0.5?-1:1; r.vx=dir*(3+Math.random()*5); r.facing=dir; }); }
+}
+function roamFrame(now){
+  if(!S||S.tab!=="camp"||!roamLayerEl||!document.body.contains(roamLayerEl)){ roamRAF=null; return; }
+  const dt=Math.min(0.05,((now-roamLast)/1000)||0); roamLast=now;
+  roamDirector(now);
+  for(const r of roamers){
+    if(r.mode==="play"){ r.playT-=dt*1000; r.bob=Math.abs(Math.sin(now*0.013+r.seed))*6;
+      if(r.playT<=0){ r.mode="walk"; r.vx=(Math.random()<0.5?-1:1)*(3+Math.random()*4); r.facing=Math.sign(r.vx)||1; }
+    } else if(r.mode==="pause"){ r.bob=Math.sin(now*0.004+r.seed)*2;
+    } else { r.x+=r.vx*dt; r.bob=Math.sin(now*0.011+r.seed)*2.5;
+      if(r.x<-16)r.x=116; else if(r.x>116)r.x=-16; }
+    r.el.style.left=r.x.toFixed(2)+"%";
+    r.el.style.transform=`translateY(${r.bob.toFixed(1)}px) scaleX(${r.facing}) scale(${r.scale})`;
+  }
+  roamRAF=requestAnimationFrame(roamFrame);
+}
+function startRoam(){ initRoamers(); if(roamRAF)cancelAnimationFrame(roamRAF);
+  roamLast=performance.now(); roamRAF=requestAnimationFrame(roamFrame); }
+
 function idleSparkle(node){
   const r=node.getBoundingClientRect();
   const d=document.createElement("div"); d.className="heartpop"; d.style.fontSize="15px";
@@ -1072,6 +1126,7 @@ function vCamp(){
     <div class="stars"></div>
     <div class="sun"></div>
     <div class="ledge"></div>
+    <div class="roam-layer" id="roamLayer"></div>
     ${decorHTML()}
     ${dailyReady()?`<div class="gift" data-act="daily" title="Daily gift!">${giftSprite(3)}</div>`:""}
     ${merchantHere?`<div class="merchant" data-act="merchant" title="A merchant is visiting!">${merchantSprite(3)}<span class="merch-pop">!</span></div>`:""}
@@ -1592,6 +1647,7 @@ function render(){
   else if(S.tab==="pets")v.innerHTML=vPets();
   else if(S.tab==="dex")v.innerHTML=vDex();
   save();
+  if(S.tab==="camp")startRoam();
 }
 
 /* =================== EVENTS =================== */
