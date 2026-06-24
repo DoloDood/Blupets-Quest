@@ -135,7 +135,7 @@
     25%{opacity:1;transform:translate(-50%,-6px) scale(1.15)}
     100%{opacity:0;transform:translate(-50%,-40px) scale(.9) rotate(8deg)}}
   .decor{position:absolute;z-index:2;cursor:grab;touch-action:none;transform:translate(-50%,-50%);
-    filter:drop-shadow(1px 1px 0 #0002);animation:decorbob 3.2s ease-in-out infinite}
+    filter:drop-shadow(1px 1px 0 #0002)}
   .decor svg{display:block;pointer-events:none}
   .decor.dragging{animation:none;z-index:6;cursor:grabbing;filter:drop-shadow(2px 3px 0 #0003)}
   @keyframes decorbob{0%,100%{transform:translate(-50%,-50%)}50%{transform:translate(-50%,calc(-50% - 3px))}}
@@ -815,8 +815,8 @@ function grantRewards(run){
   let dust=2+rint(4)+Math.floor(run.lvl/3);
   if(decorHas("campfire")) px=Math.round(px*1.12);
   if(decorHas("balloon"))  xp=Math.round(xp*1.12);
-  if(decorHas("banner"))   dust+=1;
-  let stoneChance=0.35+run.lvl*0.01; if(decorHas("lantern")) stoneChance+=0.06;
+  if(decorHas("tree"))     dust+=1;
+  let stoneChance=0.35+run.lvl*0.01; if(decorHas("pool")) stoneChance+=0.06;
   const stone=chance(stoneChance)?rollStone(run):null;
   return {px,bits,xp,dust,stone};
 }
@@ -957,13 +957,13 @@ const DECOR={
   balloon:{name:"Balloon",cost:80, def:{x:15,y:18}, bonus:"+12% XP per win",
     pal:{r:"#ff5a55",k:"#d83c38",s:"#9aa6c4"},
     map:["..rrr..",".rrrrr.","rrrrrrr","rrrrrrr","rrrrrrr",".rrrrr.","..rrr..","...k...","...s...","..s...."]},
-  lantern:{name:"Lantern",cost:90, def:{x:80,y:22}, bonus:"+6% stone drop chance",
-    pal:{r:"#ff5a55",R:"#c8403c",y:"#ffe169",d:"#5e1f1f",s:"#9aa6c4"},
-    map:["...s...","..yyy..",".rrrrr.","rrrRrrr","rRrRrRr","rRrRrRr",".rrrrr.","..yyy..","...d...","...d..."]},
-  banner:{name:"Party Banner",cost:110, def:{x:40,y:10}, bonus:"+1 Stardust per win",
-    pal:{s:"#6b6e7e",r:"#ff5a55",g:"#5fae4a",b:"#6aa6f0"},
-    map:["sssssssssssss","rrr.ggg.bbb..",".r...g...b..."]},
-  signpost:{name:"Signpost",cost:130, def:{x:85,y:70}, bonus:"+1 Bit per win",
+  pool:{name:"Splash Pool",cost:90, def:{x:80,y:64}, bonus:"+6% stone drop chance",
+    pal:{w:"#cfe6ff",s:"#b9c4d6",b:"#6aa6f0",B:"#3a8bf0"},
+    map:["..w.....w..",".sssssssss.","sbbBbbBbbbs","sbwbbbbbBbs","sbbbbwbbbbs",".sssssssss."]},
+  tree:{name:"Tree",cost:110, def:{x:18,y:44}, bonus:"+1 Stardust per win",
+    pal:{g:"#5fae4a",G:"#3f8a36",w:"#9c6b3a",t:"#7a4f28"},
+    map:["....ggg....","..ggggggg..",".ggGgggGgg.","ggggggggggg","gggGgggGggg",".ggggggggg.","..ggggggg..","....www....","....www....","....www....","...wwwww...","..ttttttt.."]},
+  signpost:{name:"Signpost",cost:130, def:{x:85,y:78}, bonus:"+1 Bit per win",
     pal:{b:"#cdb18a",w:"#9c6b3a",W:"#7a4f28"},
     map:[".bbbbbb..","bbbbbbbb.","bbbbbbbbb","bbbbbbbb.",".bbbbbb..","...ww....","...ww....","...ww....","...ww....","..WWWW..."]},
 };
