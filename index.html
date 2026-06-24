@@ -137,7 +137,34 @@
   @keyframes idlehop{0%,100%{transform:translateY(0)}40%{transform:translateY(-11px)}70%{transform:translateY(0)}}
   .idle-wiggle{animation:idlewig .6s ease}
   @keyframes idlewig{0%,100%{transform:rotate(0)}25%{transform:rotate(-7deg)}75%{transform:rotate(7deg)}}
-  @media (prefers-reduced-motion:reduce){.decor,.idle-hop,.idle-wiggle{animation:none}}
+  @media (prefers-reduced-motion:reduce){.decor,.idle-hop,.idle-wiggle,.idle-wander,.firefly,.leaf,.shootstar{animation:none}}
+  .idle-wander{animation:idlewander 1.6s ease-in-out}
+  @keyframes idlewander{0%{transform:translateX(0)}30%{transform:translateX(-14px)}70%{transform:translateX(12px)}100%{transform:translateX(0)}}
+  /* daily gift */
+  .gift{position:absolute;left:50%;top:30%;transform:translate(-50%,-50%);z-index:4;cursor:pointer;
+    filter:drop-shadow(0 0 7px #ffd24a);animation:giftbob 1.3s ease-in-out infinite}
+  .gift svg{pointer-events:none}
+  @keyframes giftbob{0%,100%{transform:translate(-50%,-50%) translateY(0) rotate(-3deg)}50%{transform:translate(-50%,-50%) translateY(-5px) rotate(3deg)}}
+  /* merchant */
+  .merchant{position:absolute;right:6%;bottom:30%;z-index:4;cursor:pointer;filter:drop-shadow(2px 2px 0 #0002);animation:decorbob 2.6s ease-in-out infinite}
+  .merchant svg{pointer-events:none}
+  .merch-pop{position:absolute;top:-12px;left:50%;transform:translateX(-50%);font-family:var(--px);font-size:12px;color:#fff;
+    background:var(--coral);border:2px solid #fff;border-radius:8px;padding:0 5px;animation:giftbob 1s ease-in-out infinite}
+  /* pet chat/nap bubble */
+  .chatbub{position:fixed;transform:translate(-50%,-100%);font-size:15px;background:#fff;border:2px solid var(--line);
+    border-radius:9px;padding:1px 6px;pointer-events:none;z-index:60;animation:chatfloat 1.7s ease forwards;font-weight:700}
+  @keyframes chatfloat{0%{opacity:0;transform:translate(-50%,-80%) scale(.6)}18%{opacity:1;transform:translate(-50%,-110%) scale(1)}82%{opacity:1}100%{opacity:0;transform:translate(-50%,-150%)}}
+  /* fireflies (night) */
+  .firefly{position:absolute;width:4px;height:4px;border-radius:50%;background:#fff3a0;
+    box-shadow:0 0 6px 2px #ffe46e;pointer-events:none;animation:flit 4.2s ease-in-out forwards}
+  @keyframes flit{0%{opacity:0;transform:translate(0,0)}20%{opacity:1}50%{opacity:.5;transform:translate(var(--dx),var(--dy))}80%{opacity:1}100%{opacity:0;transform:translate(calc(var(--dx)*-1),var(--dy))}}
+  /* leaves (day) */
+  .leaf{position:absolute;top:-6%;width:6px;height:6px;border-radius:60% 0 60% 0;pointer-events:none;animation:leaffall 5.2s linear forwards}
+  @keyframes leaffall{0%{opacity:0;transform:translate(0,0) rotate(0)}10%{opacity:.95}100%{opacity:0;transform:translate(var(--fall),190px) rotate(420deg)}}
+  /* shooting star (night, tappable) */
+  .shootstar{position:absolute;left:-12%;width:34px;height:3px;border-radius:3px;cursor:pointer;z-index:5;
+    background:linear-gradient(90deg,transparent,#fff);box-shadow:0 0 8px 2px #cfe0ff;animation:shoot 1.6s ease-in forwards}
+  @keyframes shoot{0%{opacity:0;left:-12%;top:0}10%{opacity:1}100%{opacity:0;left:112%;top:60px}}
   .credits{margin:16px auto 8px;text-align:center;font-size:11px;line-height:1.6;
     color:#6c7a99;opacity:.7;max-width:330px;letter-spacing:.2px}
   .credits a{color:inherit;text-decoration:underline;font-weight:700}
@@ -541,7 +568,7 @@ function freshState(){
     cookTab:"cook", cookRole:"any", cookPremium:false, tradeFrom:"Red", tradeTo:"Blue",
     prep:{snack:false,tonic:false,focus:false}, decorOwned:{}, decor:{}, decorPos:{},
     stats:{mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0}, username:null,
-    lb:{day:null,week:null,dayStats:{},weekStats:{}}};
+    lb:{day:null,week:null,dayStats:{},weekStats:{}}, daily:{last:null,streak:0}, merchantTs:0};
 }
 function migrateState(){
   let mx=0;(S.pets||[]).forEach(p=>{const n=parseInt((p.iid||"p0").slice(1))||0; if(n>mx)mx=n;}); IID=mx+1;
@@ -552,6 +579,7 @@ function migrateState(){
   if(!S.decorOwned)S.decorOwned={}; if(!S.decor)S.decor={}; if(!S.decorPos)S.decorPos={};
   if(!S.stats)S.stats={mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0};
   if(!S.lb)S.lb={day:null,week:null,dayStats:{},weekStats:{}};
+  if(!S.daily)S.daily={last:null,streak:0}; if(S.merchantTs==null)S.merchantTs=0;
   if(S.username===undefined)S.username=null;
   (S.pets||[]).forEach(p=>{ if(p.bond==null)p.bond=0; });
   if(!S.progress){S.progress={}; const c=S.cleared||0; for(let i=0;i<c&&i<ZONES.length;i++)S.progress[ZONES[i].id]=ZONES[i].stages;}
@@ -896,6 +924,135 @@ function buyDecor(k){const d=DECOR[k]; if(!d||S.decorOwned[k])return;
   closeOverlay(); statbar(); render(); showDecorShop();
 }
 function toggleDecor(k){ if(!S.decorOwned[k])return; S.decor[k]=!S.decor[k]; save(); closeOverlay(); render(); showDecorShop(); }
+/* ---------- camp life: daily reward, ambiance, chat, merchant ---------- */
+function giftSprite(cell){return pxSprite(
+  ["...y.y...","..yyyyy..","rrrrYrrrr","rrrrYrrrr","RRRRYRRRR","rrrrYrrrr","rrrrYrrrr","RRRRRRRRR"],
+  {r:"#ff5a55",R:"#d83c38",y:"#ffd24a",Y:"#ffd24a"}, cell||3);}
+function merchantSprite(cell){return pxSprite(
+  ["aAaAaAaAaAa","aaaaaaaaaaa","WWWWWWWWWWW","w.y.g.y.g.w","w.........w","WWWWWWWWWWW","w.w...w.w.w","O.O...O.O.O"],
+  {a:"#ff7a6b",A:"#d83c38",w:"#9c6b3a",W:"#7a4f28",y:"#ffd24a",g:"#5fae4a",O:"#27406e"}, cell||3);}
+
+/* daily reward */
+function dailyKey(){ return njDayStr(new Date()); }
+function dailyReady(){ return !S.daily || S.daily.last!==dailyKey(); }
+function showDailyReward(){
+  if(!dailyReady()){ toast("Already claimed today — come back tomorrow! 🎁"); return; }
+  const today=dailyKey(), yest=addDaysKey(today,-1);
+  const streak=(S.daily && S.daily.last===yest)?(S.daily.streak||0)+1:1;
+  const d=Math.min(streak,7), px=20+d*6, bn=2+Math.floor(d/2), dust=(streak%3===0||streak>=7)?3:0;
+  const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
+    <div class="center">${giftSprite(6)}</div>
+    <h2 class="title center">Daily Gift</h2>
+    <p class="center muted" style="margin:2px 0 12px">🔥 Day ${streak} streak — keep visiting each day for bigger rewards!</p>
+    <div id="dailyBody" class="center">
+      <button class="btn mint" data-act="claimdaily" data-px="${px}" data-bn="${bn}" data-dust="${dust}" data-streak="${streak}" style="width:100%">Open gift 🎁</button>
+    </div>
+  </div></div>`);
+  document.body.appendChild(ov);
+}
+function claimDaily(px,bn,dust,streak){
+  S.daily={last:dailyKey(), streak};
+  S.pixels+=px;
+  const got=[];
+  got.push(`✦ ${px} Pixels`);
+  const bits={};
+  for(let i=0;i<bn;i++){const c=pick(BASE).name; S.bits[c]=(S.bits[c]||0)+1; bits[c]=(bits[c]||0)+1;}
+  got.push(Object.keys(bits).map(c=>`${bits[c]}× ${c} Bit`).join(", "));
+  if(dust){ S.dust+=dust; got.push(`💠 ${dust} Stardust`); }
+  sfx("victory"); save(); statbar();
+  const body=document.getElementById("dailyBody");
+  if(body)body.innerHTML=`<div class="card" style="margin:0 0 10px"><div class="gbody center">You received:<br><b>${got.filter(Boolean).join("<br>")}</b></div></div>
+    <button class="btn ghost" data-act="closeoverlay" style="width:100%">Awesome!</button>`;
+  // celebratory sparkles
+  for(let i=0;i<14;i++){const s=document.createElement("div");s.className="heartpop";s.textContent=pick(["✨","🎉","⭐","💫"]);
+    s.style.left=(20+Math.random()*60)+"%";s.style.top=(30+Math.random()*30)+"%";s.style.fontSize="18px";
+    s.style.animationDelay=(i*0.05)+"s";document.body.appendChild(s);setTimeout(()=>s.remove(),1300);}
+  render();
+}
+
+/* ambiance particles inside the diorama */
+function spawnAmbiance(){
+  const dio=document.querySelector(".diorama"); if(!dio)return;
+  const night=document.body.classList.contains("night");
+  if(night){
+    if(Math.random()<0.08){ shootingStar(dio); return; }
+    for(let i=0;i<2;i++)firefly(dio);
+  } else {
+    if(Math.random()<0.6) leaf(dio);
+  }
+}
+function firefly(dio){
+  const f=document.createElement("div"); f.className="firefly";
+  f.style.left=(8+Math.random()*84)+"%"; f.style.top=(20+Math.random()*55)+"%";
+  f.style.setProperty("--dx",(Math.random()*30-15)+"px"); f.style.setProperty("--dy",(Math.random()*20-10)+"px");
+  dio.appendChild(f); setTimeout(()=>f.remove(),4200);
+}
+function leaf(dio){
+  const l=document.createElement("div"); l.className="leaf";
+  l.style.left=(-6+Math.random()*30)+"%"; l.style.setProperty("--fall",(60+Math.random()*60)+"px");
+  l.style.background=pick(["#7bbf4a","#e8a13c","#d8772f","#c0d860"]);
+  dio.appendChild(l); setTimeout(()=>l.remove(),5200);
+}
+function shootingStar(dio){
+  const s=document.createElement("div"); s.className="shootstar"; s.dataset.act="star";
+  s.style.top=(6+Math.random()*22)+"%";
+  dio.appendChild(s); setTimeout(()=>{ if(s.parentNode)s.remove(); },1600);
+}
+
+/* pet chat / nap bubbles */
+function petBubble(node,txt){
+  const r=node.getBoundingClientRect();
+  const b=document.createElement("div"); b.className="chatbub"; b.textContent=txt;
+  b.style.left=(r.left+r.width/2)+"px"; b.style.top=(r.top-6)+"px";
+  document.body.appendChild(b); setTimeout(()=>b.remove(),1700);
+}
+
+/* visiting merchant */
+let merchantHere=false, merchantChecked=false, merchantOffers=[];
+const MERCHANT_DEALS=[
+  {id:"bits", label:"Bit Bundle", desc:"6 random Bits", cost:"✦40", can:()=>S.pixels>=40,
+   buy:()=>{ S.pixels-=40; for(let i=0;i<6;i++){const c=pick(BASE).name;S.bits[c]=(S.bits[c]||0)+1;} } },
+  {id:"dust", label:"Stardust Cache", desc:"💠 4 Stardust", cost:"✦60", can:()=>S.pixels>=60,
+   buy:()=>{ S.pixels-=60; S.dust+=4; } },
+  {id:"stone", label:"Lucky Stone", desc:"a random basic stone", cost:"💠6", can:()=>S.dust>=6,
+   buy:()=>{ S.dust-=6; const k=pick(STONE_KINDS).id; S.stones.push({kind:k,tier:"basic"}); } },
+  {id:"sell", label:"Bit Buyer", desc:"sell 6 Bits → ✦35", cost:"6 Bits", can:()=>BASE.some(b=>(S.bits[b.name]||0)>=6),
+   buy:()=>{ const b=BASE.filter(x=>(S.bits[x.name]||0)>=6).sort((a,c)=>(S.bits[c.name]||0)-(S.bits[a.name]||0))[0]; if(b){S.bits[b.name]-=6;S.pixels+=35;} } },
+];
+function maybeMerchant(){
+  if(merchantChecked)return; merchantChecked=true;
+  if(merchantHere)return;
+  if(Date.now()-(S.merchantTs||0) > 30*60*1000 && Math.random()<0.4){
+    merchantHere=true; S.merchantTs=Date.now(); save();
+    const pool=[...MERCHANT_DEALS]; merchantOffers=[];
+    for(let i=0;i<2 && pool.length;i++){ merchantOffers.push(pool.splice(rint(pool.length),1)[0]); }
+    merchantOffers.forEach(o=>o.used=false);
+  }
+}
+function showMerchant(){
+  const rows=merchantOffers.map((o,i)=>{
+    const ok=!o.used && o.can();
+    const btn=o.used?`<span class="muted" style="font-size:11px">Sold ✓</span>`
+      :`<button class="btn ${ok?'mint':'ghost'} sm" data-act="mbuy" data-i="${i}" ${ok?'':'disabled'}>${o.cost}</button>`;
+    return `<div class="card" style="margin:0 0 8px;display:flex;gap:10px;align-items:center">
+      <div style="flex:1;min-width:0"><div class="ri-name">${o.label}</div><div class="muted">${o.desc}</div></div>${btn}</div>`;
+  }).join("");
+  const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
+    <div class="center">${merchantSprite(4)}</div>
+    <h2 class="title center">Traveling Merchant</h2>
+    <p class="center muted" style="margin:2px 0 12px">"Just passing through the Isles — fancy a deal, friend?"</p>
+    ${rows}
+    <button class="btn ghost" data-act="merchantleave" style="width:100%;margin-top:4px">Wave goodbye 👋</button>
+  </div></div>`);
+  document.body.appendChild(ov);
+}
+function merchantBuy(i){
+  const o=merchantOffers[i]; if(!o||o.used||!o.can())return;
+  o.buy(); o.used=true; sfx("equip"); save(); statbar();
+  closeOverlay(); showMerchant();
+}
+function merchantLeave(){ merchantHere=false; closeOverlay(); render(); }
+
 function idleSparkle(node){
   const r=node.getBoundingClientRect();
   const d=document.createElement("div"); d.className="heartpop"; d.style.fontSize="15px";
@@ -916,6 +1073,8 @@ function vCamp(){
     <div class="sun"></div>
     <div class="ledge"></div>
     ${decorHTML()}
+    ${dailyReady()?`<div class="gift" data-act="daily" title="Daily gift!">${giftSprite(3)}</div>`:""}
+    ${merchantHere?`<div class="merchant" data-act="merchant" title="A merchant is visiting!">${merchantSprite(3)}<span class="merch-pop">!</span></div>`:""}
     <div class="tapring"></div>
     <div class="pot" data-act="tab" data-tab="cook" title="open the Cook Pot" style="box-shadow:0 -7px 16px -3px ${potC}aa">
       <span class="bubl" style="background:${potC}"></span>
@@ -1425,6 +1584,7 @@ function renderTabs(){
 }
 function render(){
   regenEnergy(); statbar(); renderTabs();
+  if(S.tab==="camp"){ maybeMerchant(); } else { merchantChecked=false; }
   const v=$("view");
   if(S.tab==="camp")v.innerHTML=vCamp();
   else if(S.tab==="cook")v.innerHTML=vCook();
@@ -1458,6 +1618,12 @@ document.addEventListener("click",e=>{
   else if(act==="pet"){petPet(t.dataset.iid);}
   else if(act==="decorshop"){showDecorShop();}
   else if(act==="guide"){showGuide();}
+  else if(act==="daily"){showDailyReward();}
+  else if(act==="claimdaily"){claimDaily(+t.dataset.px,+t.dataset.bn,+t.dataset.dust,+t.dataset.streak);}
+  else if(act==="star"){ const px=8+rint(10); S.pixels+=px; save(); statbar(); sfx("reveal"); toast("⭐ Lucky star! +✦"+px); if(t.remove)t.remove(); }
+  else if(act==="merchant"){showMerchant();}
+  else if(act==="mbuy"){merchantBuy(+t.dataset.i);}
+  else if(act==="merchantleave"){merchantLeave();}
   else if(act==="leaderboard"){showLeaderboard();}
   else if(act==="magiclink"){doMagicLink();}
   else if(act==="guest"){playAsGuest();}
@@ -2082,13 +2248,16 @@ async function bootAuth(){
 applyTimeTheme(); setInterval(applyTimeTheme, 60000);
 setInterval(()=>{
   if(!S||S.tab!=="camp")return;
+  spawnAmbiance();
   const nodes=document.querySelectorAll('.party-stage [data-petslot]');
   if(!nodes.length)return;
   const node=nodes[Math.floor(Math.random()*nodes.length)];
-  const a=["idle-hop","idle-wiggle","sparkle"][Math.floor(Math.random()*3)];
+  const a=pick(["idle-hop","idle-wiggle","idle-wander","sparkle","chat","nap"]);
   if(a==="sparkle"){ idleSparkle(node); }
-  else { node.classList.remove(a); void node.offsetWidth; node.classList.add(a); setTimeout(()=>node.classList.remove(a),700); }
-}, 3600);
+  else if(a==="chat"){ petBubble(node, pick(["!","♪","♥","?","✦"])); }
+  else if(a==="nap"){ petBubble(node,"💤"); node.classList.remove("idle-wiggle"); void node.offsetWidth; node.classList.add("idle-wiggle"); setTimeout(()=>node.classList.remove("idle-wiggle"),700); }
+  else { const cls=a; node.classList.remove(cls); void node.offsetWidth; node.classList.add(cls); setTimeout(()=>node.classList.remove(cls), cls==="idle-wander"?1600:700); }
+}, 3000);
 bootAuth();
 </script>
 </body>
