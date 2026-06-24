@@ -1878,7 +1878,9 @@ function showCookReveal(p){
     <div class="wave-tag">Who's that Blupet?</div>
     <div class="silho" id="silho">${petArtHTML(p,120)}</div>
     <h2 class="title" id="revealName" style="opacity:0">${petDisplayName(p)}!</h2>
-    <p class="muted">A ${p.colorName} Blupet joined your camp!</p>
+    <p class="muted">A <b>${vibeName(p)}</b> ${p.colorName} Blupet joined your camp!</p>
+    <p class="muted" style="margin:2px 0 6px;font-size:12px;font-style:italic">"${esc(vibeDesc(p))}"</p>
+    <p class="muted" style="margin:0 0 8px;font-size:12px">${ROLES[petRole(p)].tag} ${ROLES[petRole(p)].name} · ✨ ${vibeName(p)} <span style="opacity:.8">(${vibeHint(p)})</span></p>
     <button class="btn mint" data-act="closeoverlay">Yay!</button>
   </div></div>`);
   document.body.appendChild(ov);
