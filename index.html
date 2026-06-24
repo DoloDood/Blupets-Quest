@@ -99,7 +99,13 @@
   .ledge{position:absolute;bottom:0;left:0;right:0;height:42%;
     background:repeating-linear-gradient(90deg,#bfe89a 0 16px,#b6e28f 16px 32px)}
   .party-stage{position:absolute;bottom:8%;left:0;right:0;display:flex;justify-content:center;
-    align-items:flex-end;gap:10px;padding:0 10px}
+    align-items:flex-end;gap:10px;padding:0 10px;pointer-events:none}
+  .party-stage .petpet,.party-stage .empty-slot{pointer-events:auto}
+  .cook-timer{position:absolute;left:6px;bottom:20%;z-index:5;font-family:var(--px);font-size:8px;
+    color:var(--ink);background:var(--cream);border:2px solid var(--line);border-radius:7px;
+    padding:3px 5px;box-shadow:2px 2px 0 var(--shadow);white-space:nowrap}
+  .pot-big.cooking{animation:potwiggle 1.1s ease-in-out infinite}
+  @keyframes potwiggle{0%,100%{transform:rotate(-1.5deg)}50%{transform:rotate(1.5deg)}}
   .pot{position:absolute;bottom:8%;left:12px;width:40px;height:30px;background:#6b6e7e;
     border:3px solid var(--line);border-radius:6px 6px 10px 10px}
   .pot:before{content:"";position:absolute;top:-9px;left:-4px;right:-4px;height:8px;
@@ -568,7 +574,7 @@ function freshState(){
     cookTab:"cook", cookRole:"any", cookPremium:false, tradeFrom:"Red", tradeTo:"Blue",
     prep:{snack:false,tonic:false,focus:false}, decorOwned:{}, decor:{}, decorPos:{},
     stats:{mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0}, username:null,
-    lb:{day:null,week:null,dayStats:{},weekStats:{}}, daily:{last:null,streak:0}, merchantTs:0};
+    lb:{day:null,week:null,dayStats:{},weekStats:{}}, daily:{last:null,streak:0}, merchantTs:0, cooking:null};
 }
 function migrateState(){
   let mx=0;(S.pets||[]).forEach(p=>{const n=parseInt((p.iid||"p0").slice(1))||0; if(n>mx)mx=n;}); IID=mx+1;
@@ -580,6 +586,7 @@ function migrateState(){
   if(!S.stats)S.stats={mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0};
   if(!S.lb)S.lb={day:null,week:null,dayStats:{},weekStats:{}};
   if(!S.daily)S.daily={last:null,streak:0}; if(S.merchantTs==null)S.merchantTs=0;
+  if(S.cooking===undefined)S.cooking=null;
   if(S.username===undefined)S.username=null;
   (S.pets||[]).forEach(p=>{ if(p.bond==null)p.bond=0; });
   if(!S.progress){S.progress={}; const c=S.cleared||0; for(let i=0;i<c&&i<ZONES.length;i++)S.progress[ZONES[i].id]=ZONES[i].stages;}
@@ -620,7 +627,7 @@ function markDex(familyId,tier,formIdx){
 function dexCount(){return Object.keys(S.dex).length;}
 
 /* energy regen: 1 per 4 min real time */
-const ENERGY_MS=4*60*1000;
+const ENERGY_MS=1*60*1000;
 function regenEnergy(){
   const now=Date.now(); const elapsed=now-(S.lastTs||now);
   if(S.energy>=S.maxEnergy){S.lastTs=now;return;}
@@ -730,24 +737,47 @@ function rollStone(zone){
 }
 
 /* =================== COOKING =================== */
-function cook(colorName){
-  if(S.pets.length>=MAX_PETS){toast("Storage full ("+MAX_PETS+"). Release a Blupet first.");return null;}
-  const role=S.cookRole||"any";
-  const premium=!!S.cookPremium;
-  const bitCost = role==="any"?5:8;
-  const dustCost = premium?12:0;
-  if((S.bits[colorName]||0)<bitCost){toast("Need "+bitCost+" "+colorName+" Bits");return null;}
-  if(premium && S.dust<dustCost){toast("Need 💠"+dustCost+" Stardust for a Choice recipe");return null;}
+const COOK_MS=60*1000;
+function fmtMMSS(ms){ const t=Math.max(0,Math.ceil(ms/1000)); return Math.floor(t/60)+":"+String(t%60).padStart(2,"0"); }
+function cookRemainingMs(){ return S.cooking ? Math.max(0, S.cooking.dur-(Date.now()-S.cooking.start)) : 0; }
+function cookReady(){ return !!S.cooking && cookRemainingMs()<=0; }
+function startCook(colorName){
+  if(S.cooking){ toast("The pot's already cooking! 🍲"); S.tab="cook"; render(); return; }
+  if(S.pets.length>=MAX_PETS){toast("Storage full ("+MAX_PETS+"). Release a Blupet first.");return;}
+  const role=S.cookRole||"any", premium=!!S.cookPremium;
+  const bitCost=role==="any"?5:8, dustCost=premium?12:0;
+  if(!colorName){toast("Pick a color first");return;}
+  if((S.bits[colorName]||0)<bitCost){toast("Need "+bitCost+" "+colorName+" Bits");return;}
+  if(premium && S.dust<dustCost){toast("Need 💠"+dustCost+" Stardust for a Choice recipe");return;}
   S.bits[colorName]-=bitCost; if(premium)S.dust-=dustCost;
-  const lvl = premium?5:(chance(0.18)?3:1);
-  const vibe = role==="any"?null:pick(ROLE_BUCKETS[role]);
-  const p=makePet(colorName,lvl,vibe);
-  S.pets.push(p);
-  markDex(p.familyId,1,0);
-  if(S.party.length<3)S.party.push(p.iid);
-  save();
-  return p;
+  const lvl=premium?5:(chance(0.18)?3:1);
+  const vibe=role==="any"?null:pick(ROLE_BUCKETS[role]);
+  S.cooking={start:Date.now(), dur:COOK_MS, color:colorName, lvl, vibe};
+  cookReadyFlag=false; sfx("cook"); save(); render(); startCookTicker();
+  toast("🍲 Cooking… ready in 1 minute!");
 }
+function collectCook(){
+  if(!cookReady())return;
+  const c=S.cooking; S.cooking=null;
+  const p=makePet(c.color,c.lvl,c.vibe);
+  S.pets.push(p); markDex(p.familyId,1,0); if(S.party.length<3)S.party.push(p.iid);
+  save(); showCookReveal(p); render();
+}
+let cookTick=null, cookReadyFlag=false;
+function startCookTicker(){
+  if(cookTick){clearInterval(cookTick);cookTick=null;}
+  if(!S.cooking)return;
+  cookReadyFlag=cookReady();
+  cookTick=setInterval(()=>{
+    if(!S||!S.cooking){clearInterval(cookTick);cookTick=null;return;}
+    const rem=cookRemainingMs();
+    const a=document.getElementById("cookTimer"); const b=document.getElementById("cookTimerCook");
+    if(a)a.textContent= rem>0?("🍲 "+fmtMMSS(rem)):"✨ Ready! Tap the pot";
+    if(b)b.textContent= rem>0?("Cooking… "+fmtMMSS(rem)+" left"):"Ready to collect!";
+    if(rem<=0 && !cookReadyFlag){ cookReadyFlag=true; sfx("reveal"); if(S.tab==="camp"||S.tab==="cook")render(); }
+  },500);
+}
+function cook(colorName){ startCook(colorName); }
 /* ---- Bit trading & melting ---- */
 function tradeBits(){
   const from=S.tradeFrom, to=S.tradeTo;
@@ -1076,11 +1106,12 @@ function vCamp(){
     ${dailyReady()?`<div class="gift" data-act="daily" title="Daily gift!">${giftSprite(3)}</div>`:""}
     ${merchantHere?`<div class="merchant" data-act="merchant" title="A merchant is visiting!">${merchantSprite(3)}<span class="merch-pop">!</span></div>`:""}
     <div class="tapring"></div>
-    <div class="pot" data-act="tab" data-tab="cook" title="open the Cook Pot" style="box-shadow:0 -7px 16px -3px ${potC}aa">
+    ${S.cooking?`<div class="cook-timer" id="cookTimer">${cookReady()?'✨ Ready! Tap the pot':'🍲 '+fmtMMSS(cookRemainingMs())}</div>`:''}
+    <div class="pot" data-act="${cookReady()?'cookcollect':'tab'}" ${cookReady()?'':'data-tab="cook"'} title="open the Cook Pot" style="box-shadow:0 -7px 16px -3px ${potC}aa">
       <span class="bubl" style="background:${potC}"></span>
       <span class="bubl" style="left:18px;animation-delay:.6s;background:${potC}"></span>
       <span class="bubl" style="left:30px;animation-delay:1.1s;background:${potC}"></span></div>
-    <div class="pot-cap" data-act="tab" data-tab="cook">🍳 tap to cook</div>
+    <div class="pot-cap" data-act="${cookReady()?'cookcollect':'tab'}" ${cookReady()?'':'data-tab="cook"'}>${S.cooking?(cookReady()?'✨ collect!':'🍲 cooking…'):'🍳 tap to cook'}</div>
     <div class="party-stage">${stage}</div>
   </div>
   ${guideBanner()}
@@ -1142,6 +1173,16 @@ function vCook(){
   return head+vCookMain();
 }
 function vCookMain(){
+  if(S.cooking){
+    const ready=cookReady();
+    return `<p class="sub">Your pot is conjuring a new friend…</p>
+    <div class="card center">
+      <div class="pot-big cooking"><div class="pot-lid"></div><div class="pot-body"></div></div>
+      <div class="ri-name" id="cookTimerCook" style="margin:10px 0">${ready?'Ready to collect!':'Cooking… '+fmtMMSS(cookRemainingMs())+' left'}</div>
+      <button class="btn ${ready?'mint':'ghost'}" data-act="cookcollect" ${ready?'':'disabled'}>${ready?'Collect your Blupet! ✨':'Please wait…'}</button>
+    </div>
+    <div id="cookResult"></div>`;
+  }
   const sel=S.cookSel; const role=S.cookRole||"any"; const premium=!!S.cookPremium;
   const bitCost = role==="any"?5:8; const dustCost = premium?12:0;
   const roleBtns = `<div style="display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin:6px 0">`+
@@ -1591,6 +1632,7 @@ function render(){
   else if(S.tab==="quest")v.innerHTML=vQuest();
   else if(S.tab==="pets")v.innerHTML=vPets();
   else if(S.tab==="dex")v.innerHTML=vDex();
+  if(S.cooking && !cookTick)startCookTicker();
   save();
 }
 
@@ -1612,7 +1654,8 @@ document.addEventListener("click",e=>{
   else if(act==="trade"){tradeBits();}
   else if(act==="melt"){meltBits(t.dataset.into);}
   else if(act==="brew"){brew(t.dataset.kind);}
-  else if(act==="cook"){const p=cook(S.cookSel);if(p){sfx("cook");showCookReveal(p);}}
+  else if(act==="cook"){startCook(S.cookSel);}
+  else if(act==="cookcollect"){collectCook();}
   else if(act==="zone"){const z=ZONES.find(z=>z.id==t.dataset.z);if(z)playExpedition(z);}
   else if(act==="petdetail"){petDetail(t.dataset.iid);}
   else if(act==="pet"){petPet(t.dataset.iid);}
@@ -1663,7 +1706,7 @@ function showEnergyInfo(){
     <div style="font-size:42px">⚡</div>
     <h2 class="title" style="margin:6px 0 4px">Energy</h2>
     <p class="muted" id="enInfo" style="margin:0 0 8px"></p>
-    <p class="muted" style="margin:0 0 12px">Each expedition costs <b>1</b> energy. It refills on its own — about <b>1 every 4 minutes</b>, up to ${S.maxEnergy}. Come back later, or top up with Pixels.</p>
+    <p class="muted" style="margin:0 0 12px">Each expedition costs <b>1</b> energy. It refills on its own — about <b>1 every minute</b>, up to ${S.maxEnergy}. Come back soon, or top up with Pixels.</p>
     <div id="enBtns"></div>
     <button class="btn ghost" data-act="closeoverlay" style="margin-top:10px">Close</button>
   </div></div>`);
@@ -2057,7 +2100,7 @@ function syncLeaderboard(){ if(isGuest||!sbc||!authUser||!S.username)return;
   try{ sbc.from("lb_weekly").upsert({...base, period:lb.week,
       mobs:w.mobs||0,bosses:w.bosses||0,pets:w.pets||0,evolutions:w.evolutions||0,expeditions:w.expeditions||0}).then(()=>{},()=>{}); }catch(e){}
 }
-function enterGame(){ if(!isGuest)rolloverCheck(); regenEnergy(); statbar(); renderTabs(); if(S.started)render(); else startFlow(); }
+function enterGame(){ if(!isGuest)rolloverCheck(); regenEnergy(); statbar(); renderTabs(); if(S.cooking)startCookTicker(); if(S.started)render(); else startFlow(); }
 function playAsGuest(){ isGuest=true; authUser=null; load(); enterGame(); }
 async function enterLoggedIn(){
   isGuest=false;
