@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Blupets Quest</title>
+<title>BluQuest</title>
 <meta name="description" content="Cook to befriend Blupets, send a team of three on expeditions across Tumble Isles, and grow them into their final forms. A whimsical fan-made quest." />
-<meta property="og:title" content="Blupets Quest" />
+<meta property="og:title" content="BluQuest" />
 <meta property="og:description" content="Befriend Blupets, explore the isles, evolve your team. A cozy fan-made adventure." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -399,7 +399,7 @@
 <div class="clouds" id="clouds"></div>
 <div id="shell">
   <div class="topbar">
-    <span class="brand">BLU<b>PETS</b> QUEST</span>
+    <span class="brand">BLU<b>QUEST</b></span>
     <div class="stat" id="statbar"></div>
   </div>
   <div class="view" id="view"></div>
@@ -410,7 +410,7 @@
 <script>
 "use strict";
 /* =================================================================
-   BLUPETS QUEST — cozy expedition/collect loop on real Blupets art.
+   BLUQUEST — cozy expedition/collect loop on real Blupets art.
    Fan project. Data + art via the public BluKit API. Saves locally.
    ================================================================= */
 const API="https://blupix.app/api/blukit";
@@ -2563,10 +2563,10 @@ function showLoginScreen(){
   const v=$("view");
   v.innerHTML=`<div class="loginwrap">
     <div class="center" style="margin-bottom:2px">${guideSprite(5)}</div>
-    <h2 class="title center">Blupets Quest</h2>
+    <h2 class="title center">BluQuest</h2>
     <p class="sub center" style="margin-bottom:16px">Sign in to save your progress to the cloud and climb the leaderboard — or jump in as a guest.</p>
     ${sbc?`<button class="btn oauth-g" data-act="oauth" data-prov="google" style="width:100%">${gIcon()} Continue with Google</button>
-    <button class="btn oauth-x" data-act="oauth" data-prov="twitter" style="width:100%;margin-top:8px">${xIcon()} Continue with X</button>
+    <button class="btn oauth-x" data-act="oauth" data-prov="x" style="width:100%;margin-top:8px">${xIcon()} Continue with X</button>
     <div class="or-line"><span>or</span></div>`:""}
     <div class="card">
       <div class="ri-name" style="margin-bottom:8px">✉️ Sign in with email</div>
