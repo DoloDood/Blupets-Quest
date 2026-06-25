@@ -187,6 +187,8 @@
   .gbody b{color:#1f2f55}
   .gbody .gk{color:#3a8bf0;font-weight:800}
   .loginwrap{max-width:420px;margin:0 auto;padding:18px 4px 8px}
+  .bq-planet{animation:bq-bob 4.5s ease-in-out infinite}
+  @keyframes bq-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
   .oauth-g{background:#fff;color:#3c4043;border:2px solid #dadce0}
   .oauth-g:hover{background:#f7f8f8}
   .oauth-x{background:#111;color:#fff;border:2px solid #111}
@@ -1046,6 +1048,38 @@ function showResetConfirm(){
 function guideSprite(cell){return pxSprite(
  ["CCCCCCCCC","CpppppppC","CpllllppC","CpppppppC","CpllllppC","CpppppppC","CpllllppC","CpppppppC","CCCCCCCCC"],
  {C:"#3a8bf0",p:"#fff7e6",l:"#7fb3f0"}, cell||3);}
+function planetSprite(cell){
+  cell=cell||3;
+  const S=24, cx=11.5, cy=11.5, R=11.7, ox=5, oy=4;
+  const PCX=(ox+cx).toFixed(1), PCY=(oy+cy).toFixed(1);
+  const ocean={l:"#4f93e0",b:"#2f6fc8",d:"#245aa8",e:"#1c4684"};
+  const land ={l:"#6fd06a",b:"#4caf50",d:"#3a8b40",e:"#2f6e34"};
+  const ice  ={l:"#ffffff",b:"#e3f2ff",d:"#bfe0f5",e:"#a8cfe8"};
+  const heat ={l:"#ff9a4a",b:"#ff6a2a",d:"#d8431c",e:"#a8330f"};
+  const blobs=[[7,8,3.3],[15,13,3.8],[9,17,2.7],[18,8,2.3]];
+  let rects="";
+  for(let y=0;y<S;y++)for(let x=0;x<S;x++){
+    const dx=x-cx, dy=y-cy, d=Math.sqrt(dx*dx+dy*dy);
+    if(d>R) continue;
+    let pal=ocean;
+    for(const b of blobs){ if(Math.hypot(x-b[0],y-b[1])<b[2]){pal=land;break;} }
+    if(Math.hypot(x-18,y-17)<2.5) pal=heat;
+    if(dy<-7.3) pal=ice;
+    const light=(-dx*0.5 - dy*0.6);
+    let sh='b'; if(d>10.2)sh='e'; else if(light>4.2)sh='l'; else if(light<-3.2)sh='d';
+    rects+=`<rect x="${ox+x}" y="${oy+y}" width="1.04" height="1.04" fill="${pal[sh]}"/>`;
+  }
+  const W=34,H=31;
+  const glow=`<circle cx="${PCX}" cy="${PCY}" r="14" fill="#3a72d0" opacity="0.12"/><circle cx="${PCX}" cy="${PCY}" r="12.6" fill="#5a8fe0" opacity="0.14"/>`;
+  const ring=`<g transform="rotate(-20 ${PCX} ${PCY})"><ellipse cx="${PCX}" cy="${PCY}" rx="17" ry="4.6" fill="none" stroke="#9ec7ff" stroke-width="0.9" opacity="0.55"/></g>`;
+  const body=`<g shape-rendering="crispEdges">${rects}</g>`;
+  const shine=`<clipPath id="bqClip"><circle cx="${PCX}" cy="${PCY}" r="11.4"/></clipPath>`+
+    `<g clip-path="url(#bqClip)"><g><animateTransform attributeName="transform" type="rotate" from="0 ${PCX} ${PCY}" to="360 ${PCX} ${PCY}" dur="18s" repeatCount="indefinite"/><ellipse cx="${PCX}" cy="8.5" rx="7" ry="4" fill="#ffffff" opacity="0.15"/></g></g>`+
+    `<ellipse cx="${(ox+cx-3).toFixed(1)}" cy="${(oy+cy-4).toFixed(1)}" rx="2.6" ry="1.7" fill="#ffffff" opacity="0.45"/>`;
+  const moon=`<g><animateTransform attributeName="transform" type="rotate" from="0 ${PCX} ${PCY}" to="360 ${PCX} ${PCY}" dur="16s" repeatCount="indefinite"/><circle cx="${PCX}" cy="1.6" r="1.7" fill="#e8edf5"/><circle cx="${(ox+cx-0.6).toFixed(1)}" cy="1.2" r="0.5" fill="#c4ccd8"/></g>`;
+  const tw=`<g fill="#fff"><rect x="2" y="6" width="0.8" height="0.8"><animate attributeName="opacity" values="0.2;1;0.2" dur="2.4s" repeatCount="indefinite"/></rect><rect x="31" y="23" width="0.8" height="0.8"><animate attributeName="opacity" values="1;0.2;1" dur="3s" repeatCount="indefinite"/></rect><rect x="30" y="4" width="0.7" height="0.7"><animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite"/></rect></g>`;
+  return `<svg class="bq-planet" viewBox="0 0 ${W} ${H}" width="${(W*cell).toFixed(0)}" height="${(H*cell).toFixed(0)}" xmlns="http://www.w3.org/2000/svg">${glow}${ring}${body}${shine}${moon}${tw}</svg>`;
+}
 function gsec(icon,title,body){return `<div class="card gcard">
   <div class="gsec">${icon} ${title}</div><div class="gbody">${body}</div></div>`;}
 function showGuide(){
@@ -2562,7 +2596,7 @@ function showLoginScreen(){
   if($("tabs"))$("tabs").innerHTML=""; if($("statbar"))$("statbar").innerHTML="";
   const v=$("view");
   v.innerHTML=`<div class="loginwrap">
-    <div class="center" style="margin-bottom:2px">${guideSprite(5)}</div>
+    <div class="center" style="margin-bottom:2px">${planetSprite(3)}</div>
     <h2 class="title center">BluQuest</h2>
     <p class="sub center" style="margin-bottom:16px">Sign in to save your progress to the cloud and climb the leaderboard — or jump in as a guest.</p>
     ${sbc?`<button class="btn oauth-g" data-act="oauth" data-prov="google" style="width:100%">${gIcon()} Continue with Google</button>
