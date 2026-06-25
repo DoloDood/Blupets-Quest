@@ -804,7 +804,7 @@ function enemyObj(name,el,level,tier,art,isBoss,familyId,formIdx,roleKey){
   const b=TIER_BASE[tier]; const hm=isBoss?1.65:0.88, am=isBoss?1.05:0.74;
   const hp=Math.round(b.hp*(1+(level-1)*0.09)*hm*R.hpM);
   const atk=Math.round(b.atk*(1+(level-1)*0.08)*am*R.atkM);
-  return {name,el,level,tier,art,isBoss,familyId,formIdx,hp,maxhp:hp,atk,iid:"e"+(EID++),
+  return {name,ele:el,level,tier,art,isBoss,familyId,formIdx,hp,maxhp:hp,atk,iid:"e"+(EID++),
     role:roleKey||"bruiser",range:R.range,reduce:R.reduce,dodge:R.dodge,healer:R.heal>0,critBonus:R.crit,
     spdM:R.spdM,sizeM:R.sizeM,side:"foe"};
 }
@@ -812,7 +812,7 @@ function enemyObj(name,el,level,tier,art,isBoss,familyId,formIdx,roleKey){
 /* =================== COMBAT =================== */
 function buildFighter(p){
   const s=petStats(p); const rk=petRole(p); const R=ROLES[rk]; const e=petEffects(p);
-  return {iid:p.iid,name:petDisplayName(p),el:famElement(FAM_BY_ID[p.familyId]),tier:p.tier,
+  return {iid:p.iid,name:petDisplayName(p),ele:famElement(FAM_BY_ID[p.familyId]),tier:p.tier,
     art:petArtURL(p,72),hp:s.hp,maxhp:s.hp,atk:s.atk,level:p.level,side:"ally",
     role:rk,range:R.range,reduce:R.reduce,dodge:R.dodge+e.dodge,healer:R.heal>0,
     critBonus:R.crit+e.crit,dmgAmp:e.dmgAmp,lifesteal:e.lifesteal,spdM:R.spdM*vibeOf(p).spd,sizeM:R.sizeM};
@@ -1703,7 +1703,7 @@ function playExpedition(zone){
     if(t.dead)return;
     const Mt=statusMods(t), Mu=statusMods(u);
     if(!aoe && t.dodge && chance(t.dodge)){ if(!fast)popText(t,"dodge","#7a8aa8"); return; }
-    const em=eleMult(u.el,t.el);
+    const em=eleMult(u.ele,t.ele);
     const crit=!aoe && chance(0.10+(u.critBonus||0)+u.tier*0.01);
     let dmg=u.atk*Mu.atkMul*em*(0.85+Math.random()*0.3)*(crit?1.7:1)*(1+(u.dmgAmp||0));
     dmg*=Mt.dmgTaken;
@@ -1712,7 +1712,7 @@ function playExpedition(zone){
     if(aoe)dmg*=aoe;
     dmg=Math.max(1,Math.round(dmg));
     t.hp-=dmg;
-    const fx=ELEMENT_FX[u.el];
+    const fx=ELEMENT_FX[u.ele];
     if(fx && !aoe){
       if(fx.st)applyStatus(t,fx.st,u.atk);
       if(fx.leech && u.hp>0 && u.hp<u.maxhp){const hl=Math.max(1,Math.round(dmg*fx.leech));u.hp=Math.min(u.maxhp,u.hp+hl);if(!fast)popText(u,"+"+hl,"#2e9c5e");}
@@ -1722,14 +1722,14 @@ function playExpedition(zone){
     if(!fast){ sfx("hit");
       popText(t, dmg+(crit?"!":""), crit?"#ffd23d":em>1?"#9fe3ff":"#fff", crit);
       t.el.classList.add("uhurt"); setTimeout(()=>{if(t.el)t.el.classList.remove("uhurt");},170);
-      spawnEleBurst(t, u.el, !!aoe); }
+      spawnEleBurst(t, u.ele, !!aoe); }
     if(t.hp<=0 && !t.dead) killUnit(t);
     // Aqua splash to a nearby enemy of the target
     if(fx && fx.aoe && !aoe){ const others=alive(t.side).filter(x=>x!==t); const n=others.length?nearest(t,others):null; if(n)dealDamage(u,n,fx.aoe); }
   }
   function attack(u,t){
     u.facing=t.x>=u.x?1:-1;
-    if(u.range==="ranged" && !fast) spawnProjectile(u,t,ELECOLOR[u.el]||"#fff");
+    if(u.range==="ranged" && !fast) spawnProjectile(u,t,ELECOLOR[u.ele]||"#fff");
     dealDamage(u,t);
   }
   function healAlly(u,t){
