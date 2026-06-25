@@ -2599,9 +2599,7 @@ function showLoginScreen(){
     <div class="center" style="margin-bottom:2px">${planetSprite(3)}</div>
     <h2 class="title center">BluQuest</h2>
     <p class="sub center" style="margin-bottom:16px">Sign in to save your progress to the cloud and climb the leaderboard — or jump in as a guest.</p>
-    ${sbc?`<button class="btn oauth-g" data-act="oauth" data-prov="google" style="width:100%">${gIcon()} Continue with Google</button>
-    <button class="btn oauth-x" data-act="oauth" data-prov="x" style="width:100%;margin-top:8px">${xIcon()} Continue with X</button>
-    <div class="or-line"><span>or</span></div>`:""}
+    ${sbc?`<button class="btn oauth-g" data-act="oauth" data-prov="google" style="width:100%">${gIcon()} Continue with Google</button>`:""}
     <div class="card">
       <div class="ri-name" style="margin-bottom:8px">✉️ Sign in with email</div>
       <input id="emailIn" type="email" inputmode="email" placeholder="you@example.com" class="txtin" autocomplete="email">
