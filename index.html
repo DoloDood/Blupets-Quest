@@ -699,6 +699,7 @@ function migrateState(){
   if(!S.stats)S.stats={mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0};
   if(!S.lb)S.lb={day:null,week:null,dayStats:{},weekStats:{}};
   if(!S.daily)S.daily={last:null,streak:0}; if(S.merchantTs==null)S.merchantTs=0;
+  if(!S.quests)S.quests=null;
   if(S.cooking===undefined)S.cooking=null;
   if(S.goalClaimed==null)S.goalClaimed={}; else if(typeof S.goalClaimed==="string")S.goalClaimed={[S.goalClaimed]:true};
   if(S.username===undefined)S.username=null;
@@ -712,7 +713,7 @@ function load(){
   try{const raw=localStorage.getItem(SAVE_KEY); if(raw){S=JSON.parse(raw); migrateState(); return;}}catch(e){}
   S=freshState();
 }
-function bumpStat(k,n){ n=(n==null?1:n); if(!S.stats)S.stats={mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0};
+function bumpStat(k,n){ n=(n==null?1:n); if(!S.stats)S.stats={mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0,endlessBest:0};
   S.stats[k]=(S.stats[k]||0)+n;
   if(!isGuest){ rolloverCheck(); if(S.lb){ S.lb.dayStats[k]=(S.lb.dayStats[k]||0)+n; S.lb.weekStats[k]=(S.lb.weekStats[k]||0)+n; } }
 }
@@ -885,6 +886,7 @@ function collectCook(){
   const p=makePet(c.color,c.lvl,c.vibe,c.role);
   S.pets.push(p); markDex(p.familyId,1,0); if(S.party.length<3)S.party.push(p.iid);
   logActivity("cook", vibeName(p)+" "+c.color+" Blupet");
+  questProgress("cook");
   save(); showCookReveal(p); render();
 }
 let cookTick=null, cookReadyFlag=false;
@@ -1187,6 +1189,70 @@ function claimDaily(px,bn,dust,streak){
   render();
 }
 
+/* ===== daily quests (refresh each day) ===== */
+const QUEST_POOL=[
+  {type:"cook",        verb:"Cook",   noun:"Blupets",      targets:[3,4,5],    rw:{px:45,bits:2}},
+  {type:"mobs",        verb:"Defeat", noun:"wild Blupets", targets:[25,35,50], rw:{px:55,dust:1}},
+  {type:"expeditions", verb:"Win",    noun:"expeditions",  targets:[2,3,4],    rw:{px:50,dust:1}},
+  {type:"evolve",      verb:"Evolve", noun:"Blupets",      targets:[1,2],      rw:{px:70,dust:3}},
+  {type:"boss",        verb:"Defeat", noun:"bosses",       targets:[1,2],      rw:{px:60,dust:2}},
+];
+function genDailyQuests(){
+  const pool=QUEST_POOL.slice(), out=[];
+  for(let i=0;i<3 && pool.length;i++){
+    const q=pool.splice(rint(pool.length),1)[0];
+    out.push({type:q.type, target:pick(q.targets), prog:0, claimed:false});
+  }
+  return out;
+}
+function questDef(type){ return QUEST_POOL.find(q=>q.type===type); }
+function questText(q){ const d=questDef(q.type); return `${d.verb} ${q.target} ${d.noun}`; }
+function ensureQuests(){
+  const today=dailyKey();
+  if(!S.quests || S.quests.day!==today){ S.quests={day:today, list:genDailyQuests()}; save(); }
+}
+function questProgress(type,n){
+  if(!S.quests||!S.quests.list)return; n=(n==null?1:n); let changed=false;
+  for(const q of S.quests.list){ if(q.type===type && !q.claimed && q.prog<q.target){ q.prog=Math.min(q.target,q.prog+n); changed=true; } }
+  if(changed)save();
+}
+function questClaimable(){ ensureQuests(); return (S.quests.list||[]).filter(q=>!q.claimed && q.prog>=q.target).length; }
+function claimQuest(i){
+  const q=S.quests&&S.quests.list&&S.quests.list[i]; if(!q||q.claimed||q.prog<q.target)return;
+  const rw=questDef(q.type).rw; q.claimed=true;
+  const got=[];
+  if(rw.px){ S.pixels+=rw.px; got.push(`✦ ${rw.px} Pixels`); }
+  if(rw.dust){ S.dust+=rw.dust; got.push(`💠 ${rw.dust} Stardust`); }
+  if(rw.bits){ for(let k=0;k<rw.bits;k++){const c=pick(BASE).name; S.bits[c]=(S.bits[c]||0)+1;} got.push(`🎨 ${rw.bits} Bits`); }
+  sfx("level"); save(); statbar(); toast("Quest complete! "+got.join(" · "));
+  showQuests();
+}
+function showQuests(){
+  ensureQuests(); closeOverlay();
+  const rows=(S.quests.list||[]).map((q,i)=>{
+    const pct=Math.min(100,Math.round(q.prog/q.target*100)), done=q.prog>=q.target;
+    const rw=questDef(q.type).rw;
+    const rwTxt=[rw.px?`✦${rw.px}`:"",rw.dust?`💠${rw.dust}`:"",rw.bits?`🎨${rw.bits}`:""].filter(Boolean).join(" ");
+    return `<div class="card" style="margin:0 0 8px">
+      <div class="ri-name" style="display:flex;justify-content:space-between;align-items:center">
+        <span>${q.claimed?"✅ ":""}${esc(questText(q))}</span><span class="muted" style="font-size:11px">${rwTxt}</span></div>
+      <div class="goal-bar" style="margin:6px 0 4px"><i style="width:${q.claimed?100:pct}%"></i></div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="muted" style="font-size:11px">${Math.min(q.prog,q.target)}/${q.target}</span>
+        ${q.claimed?`<span class="muted" style="font-size:11px">Claimed</span>`
+          :done?`<button class="btn mint sm" data-act="claimquest" data-i="${i}">Claim</button>`
+          :`<span class="muted" style="font-size:11px">In progress…</span>`}
+      </div></div>`;
+  }).join("");
+  const ov=h(`<div class="overlay" data-dismiss="1"><div class="sheet">
+    <h2 class="title center">📋 Daily Quests</h2>
+    <p class="center muted" style="margin:2px 0 12px;font-size:12px">Fresh quests every day — come back tomorrow for more!</p>
+    ${rows}
+    <button class="btn ghost" data-act="closeoverlay" style="width:100%;margin-top:4px">Close</button>
+  </div></div>`);
+  document.body.appendChild(ov);
+}
+
 /* ambiance particles inside the diorama */
 function spawnAmbiance(){
   const dio=document.querySelector(".diorama"); if(!dio)return;
@@ -1307,7 +1373,9 @@ function vCamp(){
   <p class="sub">Your camp on the Tumble Isles. ${party.length<3?"Tap the pot to cook more Blupets — and tap your friends to pet them!":"Tap your Blupets to pet them, or tap the pot to cook."}</p>
   <div style="display:flex;gap:8px;justify-content:center;margin:0 0 12px;flex-wrap:wrap">
     <button class="btn ghost sm" data-act="guide">📖 Guide</button>
+    <button class="btn ghost sm" data-act="quests">📋 Quests${questClaimable()?` <b style="color:#ff5a55">(${questClaimable()})</b>`:""}</button>
     <button class="btn ghost sm" data-act="leaderboard">🏆 Leaderboard</button>
+    ${highestZoneCleared()>=5?`<button class="btn ghost sm" data-act="endless" style="border-color:#a965e8;color:#8a5cc0">♾️ Endless${(S.stats&&S.stats.endlessBest)?` · F${S.stats.endlessBest}`:""}</button>`:""}
     <button class="btn ghost sm" data-act="decorshop">🎀 Decorate</button>
   </div>
   <div class="grid2">
@@ -1674,15 +1742,36 @@ function makeUnit(f,side,index,total){
     cd:Math.random()*0.5, atkInt, spdpx:(30+f.tier*5+(f.level||1)*0.3)*(f.spdM||1),
     dead:false, facing:side==="ally"?1:-1, lunge:0, target:null, status:{}, _tt:0, _flank:0});
 }
-function playExpedition(zone){
+function startEndless(){
+  const z={name:"Endless Isles",emoji:"♾️",el:"Arcane",pool:[0,1,2,3,4,5,6,7],stages:99,easy:false,lvl:8,endless:true};
+  playExpedition(z,true);
+}
+function showEndlessResult(reached,best,px,dust,ov){
+  const wrap=ov.querySelector(".arena-wrap"); if(!wrap)return;
+  sfx("victory");
+  const rec=reached>=best && reached>1;
+  wrap.innerHTML=`<div class="battle">
+    <h2 class="title center" style="color:#a965e8">♾️ Endless Run Over</h2>
+    <div class="center" style="font-size:38px">🏔️</div>
+    <p class="center" style="margin:4px 0"><b style="font-size:18px">Reached Floor ${reached}</b></p>
+    <p class="center muted" style="margin:0 0 10px">${rec?"🏆 New personal best!":"Personal best: Floor "+best}</p>
+    <div class="reward"><span>✦</span> +${px} Pixels</div>
+    ${dust?`<div class="reward"><span>💠</span> +${dust} Stardust</div>`:""}
+    <button class="btn mint" data-act="closeoverlay">Claim &amp; continue</button></div>`;
+  sparkle(wrap);
+}
+function playExpedition(zone, endless){
   if(S.pets.length<3){toast("Befriend a full team of 3 first! 🍳");S.tab="cook";render();return;}
   if(S.party.length===0){toast("Add Blupets to your team first!");S.tab="pets";render();return;}
   if(S.energy<1){toast("Out of energy ⚡ — it refills over time, or tap the ⚡ to top up.");S.tab="camp";render();return;}
   S.energy-=1; S.lastTs=Date.now(); save(); statbar();
   playTrack("battle");
 
-  const sub=subInfo(zone);
-  const canSkip = sub.si < zoneProgress(zone); // only on stages you've already beaten
+  const eBase = endless ? zone.lvl : 0;
+  let floor=1, runPx=0, runDust=0;
+  function endlessSub(f){ return {si:0, isFinal:(f%5===0), replay:false, horde:(f%7===0 && f%5!==0), waves:2, lvl: eBase + (f-1)*2}; }
+  let sub = endless ? endlessSub(1) : subInfo(zone);
+  const canSkip = !endless && sub.si < zoneProgress(zone); // only on stages you've already beaten
   const run={pool:zone.pool, lvl:sub.lvl, easy:zone.easy, el:zone.el};
   let foeKills=0;
   const party=S.party.map(iid=>S.pets.find(p=>p.iid===iid)).filter(Boolean);
@@ -1703,7 +1792,7 @@ function playExpedition(zone){
   const ov=h(`<div class="overlay" id="arenaOv"><div class="arena-wrap">
     <div class="wave-tag" id="waveTag"></div>
     <div class="stage" id="stage" style="background:linear-gradient(180deg,${g[0]},${g[1]})"></div>
-    <div class="arena-foot"><span class="muted" id="arenaInfo">${zone.emoji} ${zone.name} · Stage ${sub.si+1}/${zone.stages}${sub.isFinal?' 👑':''}</span>
+    <div class="arena-foot"><span class="muted" id="arenaInfo">${endless?`♾️ Endless · Floor 1`:`${zone.emoji} ${zone.name} · Stage ${sub.si+1}/${zone.stages}${sub.isFinal?' 👑':''}`}</span>
       ${canSkip?'<button class="btn ghost sm" id="skipBtn">skip ▶▶</button>':'<span class="muted" style="font-size:11px">▶ watch to clear</span>'}</div></div></div>`);
   document.body.appendChild(ov);
   const stage=$("stage");
@@ -1731,6 +1820,16 @@ function playExpedition(zone){
     }
     const wt=$("waveTag");
     if(wt)wt.textContent=`Wave ${waveIdx+1}/${sub.waves}`+(bossWave?" — BOSS! 👑":sub.horde?" — SWARM! 🐝":"");
+  }
+  function nextFloor(){
+    floor++;
+    runPx += 8+floor*3; if(floor%5===0)runDust+=2;
+    allies.forEach(a=>{ if(a.dead){a.dead=false;a.hp=Math.round(a.maxhp*0.25);a.el.classList.remove("udown");}
+                        else a.hp=Math.min(a.maxhp,a.hp+Math.round(a.maxhp*0.35)); a.status={}; });
+    sub=endlessSub(floor); run.lvl=sub.lvl; zone.lvl=sub.lvl;
+    waveIdx=-1; phase="heal"; phaseT=0;
+    const wt=$("waveTag"); if(wt)wt.textContent=`✨ Floor ${floor}!`+(sub.isFinal?" 👑 BOSS":sub.horde?" 🐝 SWARM":"");
+    const info=$("arenaInfo"); if(info)info.textContent=`♾️ Endless · Floor ${floor}`;
   }
   function popText(t,txt,color,big){
     if(fast||!t.el)return;
@@ -1879,7 +1978,7 @@ function playExpedition(zone){
         if(d<min){const p=(min-d)/2; a.x-=dx/d*p; a.y-=dy/d*p; b.x+=dx/d*p; b.y+=dy/d*p; clampPos(a);clampPos(b);}
       }
       if(!alive("foe").length){
-        if(waveIdx>=sub.waves-1){ end(true); }
+        if(waveIdx>=sub.waves-1){ if(endless){nextFloor();} else end(true); }
         else { allies.forEach(a=>{ if(a.dead){a.dead=false;a.hp=Math.round(a.maxhp*0.35);a.el.classList.remove("udown");a.status={};}
                                    else a.hp=Math.min(a.maxhp,a.hp+Math.round(a.maxhp*0.55)); });
                const wt=$("waveTag"); if(wt)wt.textContent="Wave cleared! 🌿"; phase="heal"; phaseT=0; }
@@ -1903,7 +2002,15 @@ function playExpedition(zone){
     }
   }
   function end(win){ if(ended)return; ended=true; if(raf)cancelAnimationFrame(raf); draw();
+    if(endless){
+      bumpStat("expeditions"); questProgress("expeditions");
+      if(!S.stats)S.stats={}; const best=Math.max(S.stats.endlessBest||0, floor);
+      S.stats.endlessBest=best; S.pixels+=runPx; S.dust+=runDust; save();
+      setTimeout(()=>showEndlessResult(floor,best,runPx,runDust,ov), fast?0:700);
+      return;
+    }
     bumpStat("expeditions"); if(win){ bumpStat("mobs",foeKills); if(sub.isFinal){bumpStat("bosses"); logActivity("boss", zone.name+" boss");} }
+    if(win){ questProgress("expeditions"); questProgress("mobs",foeKills); if(sub.isFinal)questProgress("boss"); }
     save();
     setTimeout(()=>showResult(win,zone,run,sub,ov), fast?0:700); }
   let last=performance.now();
@@ -2000,6 +2107,8 @@ document.addEventListener("click",e=>{
   else if(act==="pet"){petPet(t.dataset.iid);}
   else if(act==="decorshop"){showDecorShop();}
   else if(act==="guide"){showGuide();}
+  else if(act==="quests"){showQuests();}
+  else if(act==="claimquest"){claimQuest(+t.dataset.i);}
   else if(act==="daily"){showDailyReward();}
   else if(act==="claimdaily"){claimDaily(+t.dataset.px,+t.dataset.bn,+t.dataset.dust,+t.dataset.streak);}
   else if(act==="star"){ const px=8+rint(10); S.pixels+=px; save(); statbar(); sfx("reveal"); toast("⭐ Lucky star! +✦"+px); if(t.remove)t.remove(); }
@@ -2007,6 +2116,7 @@ document.addEventListener("click",e=>{
   else if(act==="mbuy"){merchantBuy(+t.dataset.i);}
   else if(act==="merchantleave"){merchantLeave();}
   else if(act==="leaderboard"){showLeaderboard();}
+  else if(act==="endless"){startEndless();}
   else if(act==="magiclink"){doMagicLink();}
   else if(act==="oauth"){doOAuth(t.dataset.prov);}
   else if(act==="guest"){playAsGuest();}
@@ -2100,7 +2210,7 @@ function trainPet(iid){const p=S.pets.find(x=>x.iid===iid);if(!p)return;
 }
 function doEvolve(iid){const p=S.pets.find(x=>x.iid===iid);if(!p)return;
   const beforeArt=petArtURL(p,240);
-  if(evolvePet(p)){bumpStat("evolutions");logActivity("evolve",petDisplayName(p));save();closeOverlay();showEvolveAnim(p,beforeArt);} }
+  if(evolvePet(p)){bumpStat("evolutions");questProgress("evolve");logActivity("evolve",petDisplayName(p));save();closeOverlay();showEvolveAnim(p,beforeArt);} }
 function equipStone(iid,sid){const p=S.pets.find(x=>x.iid===iid);const s=S.stones.find(x=>x.id===sid);
   if(!p||!s)return; if((p.stones||[]).length>=stoneSlots(p)){toast("No free slot");return;}
   p.stones=p.stones||[];p.stones.push(s);sfx("equip");save();closeOverlay();petDetail(iid);}
