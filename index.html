@@ -1524,7 +1524,12 @@ function vQuest(){
   <p class="sub">Clear a zone's stages in order — the boss waits on the last one. Team Power: <b>${teamPower}</b> · Zones cleared: <b>${zonesClearedCount()}/${ZONES.length}</b></p>
   ${prepIcons?`<div class="card tint center">🍳 Brew active next run: <b>${prepIcons}</b></div>`:''}
   ${S.party.length===0?`<div class="card center muted">You have no team! Cook a Blupet first. 🍳</div>`:""}
-  ${zones}`;
+  ${zones}
+
+  <div style="margin-top:16px">
+    <button class="btn cyan" data-act="endless" style="width:100%">♾️ Endless Mode — Survive the waves! (1 ⚡)</button>
+    <p class="muted center" style="font-size:11px;margin:6px 0 0">Pick 1 Blupet • Drag to steer • Auto-fires nearest • Upgrades between waves<br>Your leveled stats + stones carry over</p>
+  </div>`;
 }
 
 let CURRENT_VIEW="camp";
@@ -2064,6 +2069,7 @@ document.addEventListener("click",e=>{
   else if(act==="cook"){startCook(S.cookSel);}
   else if(act==="cookcollect"){collectCook();}
   else if(act==="zone"){const z=ZONES.find(z=>z.id==t.dataset.z);if(z)playExpedition(z);}
+  else if(act==="endless"){startEndlessMode();}
   else if(act==="petdetail"){petDetail(t.dataset.iid);}
   else if(act==="pet"){petPet(t.dataset.iid);}
   else if(act==="decorshop"){showDecorShop();}
