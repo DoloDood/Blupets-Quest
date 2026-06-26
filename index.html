@@ -1524,7 +1524,15 @@ function vQuest(){
   <p class="sub">Clear a zone's stages in order — the boss waits on the last one. Team Power: <b>${teamPower}</b> · Zones cleared: <b>${zonesClearedCount()}/${ZONES.length}</b></p>
   ${prepIcons?`<div class="card tint center">🍳 Brew active next run: <b>${prepIcons}</b></div>`:''}
   ${S.party.length===0?`<div class="card center muted">You have no team! Cook a Blupet first. 🍳</div>`:""}
-  ${zones}`;
+  ${zones}
+  ${S.pets.length?`<div class="zone" data-act="blitz" style="border:2px dashed #a965e8;background:linear-gradient(135deg,#f3ecff,#fff7e6)">
+      <div class="emoji">♾️</div>
+      <div style="flex:1;min-width:0">
+        <div class="zn">Endless Mode ⚡ <span class="tag" style="border-color:#a965e8;color:#8a5cc0">arcade</span></div>
+        <div class="zd">Survive the swarm with one Blupet — drag to move, auto-fire. Stronger pets = better!${S.stats&&S.stats.blitzBest?` · 🏆 Best ${S.stats.blitzBest}`:""}</div>
+      </div>
+      <div class="tag" style="border-color:#a965e8;color:#8a5cc0">⚡1</div>
+    </div>`:""}`;
 }
 
 let CURRENT_VIEW="camp";
@@ -1740,6 +1748,213 @@ function makeUnit(f,side,index,total){
   return Object.assign({},f,{side,x,y,r,size,el,bar:el.querySelector("i"),pip:el.querySelector(".stp"),sprite:el.querySelector(".usprite"),
     cd:Math.random()*0.5, atkInt, spdpx:(30+f.tier*5+(f.level||1)*0.3)*(f.spdM||1),
     dead:false, facing:side==="ally"?1:-1, lunge:0, target:null, status:{}, _tt:0, _flank:0});
+}
+/* ============================================================
+   ENDLESS MODE — steer-only auto-fire survival shooter
+   Pet's leveled battle stats (hp/atk/spd/element/stones) carry in.
+   ============================================================ */
+const BLITZ_W=360, BLITZ_H=480, BLITZ_WAVES=10, BLITZ_WAVE_T=14;
+const BLITZ_UPGRADES=[
+  {id:"rapid", icon:"🔥", name:"Rapid Fire",  desc:"+20% fire rate",       apply:p=>p.fireRate*=1.20},
+  {id:"power", icon:"💥", name:"Power Shot",  desc:"+22% damage",          apply:p=>p.dmg*=1.22},
+  {id:"swift", icon:"👟", name:"Swift Feet",  desc:"+14% move speed",      apply:p=>p.speed*=1.14},
+  {id:"vigor", icon:"❤️", name:"Vigor",       desc:"+20% max HP & heal",   apply:p=>{const a=Math.round(p.maxhp*0.20);p.maxhp+=a;p.hp=Math.min(p.maxhp,p.hp+a);}},
+  {id:"multi", icon:"➕", name:"Multi-Shot",  desc:"+1 projectile",        apply:p=>p.multishot+=1},
+  {id:"pierce",icon:"➡️", name:"Piercing",    desc:"shots pierce +1 foe",  apply:p=>p.pierce+=1},
+  {id:"big",   icon:"⭕", name:"Big Shots",   desc:"+30% shot size",       apply:p=>p.projR*=1.30},
+  {id:"leech", icon:"🩸", name:"Lifesteal",   desc:"+6% damage healed",    apply:p=>p.lifesteal+=0.06},
+];
+function openBlitz(){
+  if(!S.pets.length){toast("Cook a Blupet first! 🍳");S.tab="cook";render();return;}
+  if(S.energy<1){toast("Out of energy ⚡ — it refills over time.");return;}
+  closeOverlay();
+  const cards=S.pets.map(p=>{const f=buildFighter(p);
+    return `<button class="btn ghost" data-act="blitzpick" data-iid="${p.iid}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;margin:0 0 6px;padding:8px">
+      ${petArtHTML(p,40)}
+      <span style="flex:1;min-width:0">
+        <b style="display:block">${esc(petDisplayName(p))}</b>
+        <span class="muted" style="font-size:11px">${ELEMOJI[f.ele]} ${f.ele} · Lv ${p.level} · ❤️${f.maxhp} ⚔️${f.atk}</span>
+      </span></button>`;}).join("");
+  const ov=h(`<div class="overlay" data-dismiss="1"><div class="sheet">
+    <h2 class="title center">♾️ Endless Mode</h2>
+    <p class="center muted" style="margin:2px 0 6px;font-size:12px">Pick a Blupet and survive the swarm! Drag to move — it auto-fires. Stronger, higher-level Blupets fight better here. <b>Costs ⚡1</b>.</p>
+    ${S.stats&&S.stats.blitzBest?`<p class="center" style="margin:0 0 8px;font-size:12px">🏆 Best score: <b>${S.stats.blitzBest}</b></p>`:""}
+    <div style="max-height:46vh;overflow:auto">${cards}</div>
+    <button class="btn ghost" data-act="closeoverlay" style="width:100%;margin-top:6px">Cancel</button>
+  </div></div>`);
+  document.body.appendChild(ov);
+}
+function startBlitz(iid){
+  const pet=S.pets.find(p=>p.iid===iid); if(!pet)return;
+  if(S.energy<1){toast("Out of energy ⚡");return;}
+  S.energy-=1; S.lastTs=Date.now(); save(); statbar();
+  closeOverlay(); playTrack("battle");
+  const f=buildFighter(pet);
+  const ELEC=ELE_PAL[f.ele]||["#ffd24a","#ff7a3c","#d83c18"];
+  const player={ x:BLITZ_W/2, y:BLITZ_H/2, r:13,
+    maxhp:Math.max(40,Math.round(f.maxhp)), hp:Math.max(40,Math.round(f.maxhp)),
+    dmg:Math.max(4,Math.round(f.atk*(1+(f.dmgAmp||0)))),
+    speed:95*(f.spdM||1), fireRate:1.7*(0.7+0.3*(f.spdM||1)),
+    ele:f.ele, glow:ELEC[0], mid:ELEC[1], dark:ELEC[2],
+    lifesteal:(f.lifesteal||0), multishot:1, pierce:0, projR:4.6, fireCd:0, hurtCd:0 };
+  const img=new Image(); let imgReady=false; img.onload=()=>imgReady=true; img.src=petArtURL(pet,72);
+  let enemies=[], projs=[], parts=[];
+  let wave=1, waveT=0, runT=0, score=0, kills=0, spawnCd=0;
+  let phase="fight", paused=false, ended=false;
+  const pointer={x:BLITZ_W/2,y:BLITZ_H/2,active:false};
+
+  const ov=h(`<div class="overlay" id="blitzOv"><div class="arena-wrap" style="max-width:374px">
+    <div class="wave-tag" id="bzTag" style="display:flex;justify-content:space-between;padding:0 4px">
+      <span id="bzWave">Wave 1</span><span id="bzTime">0s</span><span id="bzScore">0</span></div>
+    <div style="position:relative;width:100%">
+      <canvas id="bzCv" width="${BLITZ_W}" height="${BLITZ_H}" style="width:100%;display:block;border-radius:12px;background:#141627;touch-action:none"></canvas>
+      <div id="bzHp" style="position:absolute;left:8px;right:8px;bottom:8px;height:10px;background:#0007;border-radius:6px;overflow:hidden">
+        <i style="display:block;height:100%;width:100%;background:linear-gradient(90deg,#ff5a55,#ff9a4a)"></i></div>
+      <div id="bzUp" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:#0b0d1ad9;border-radius:12px"></div>
+    </div>
+    <div class="arena-foot"><span class="muted" style="font-size:11px">drag to move · auto-fires</span>
+      <button class="btn ghost sm" data-act="closeoverlay">quit</button></div>
+  </div></div>`);
+  document.body.appendChild(ov);
+  const cv=$("bzCv"), ctx=cv.getContext("2d");
+  function toCv(e){const r=cv.getBoundingClientRect(),sx=cv.width/r.width,sy=cv.height/r.height;
+    const t=e.touches?e.touches[0]:e; return {x:(t.clientX-r.left)*sx, y:(t.clientY-r.top)*sy};}
+  function pd(e){pointer.active=true;const c=toCv(e);pointer.x=c.x;pointer.y=c.y;e.preventDefault();}
+  function pm(e){if(!pointer.active)return;const c=toCv(e);pointer.x=c.x;pointer.y=c.y;e.preventDefault();}
+  function pu(){pointer.active=false;}
+  cv.addEventListener("mousedown",pd); cv.addEventListener("mousemove",pm); window.addEventListener("mouseup",pu);
+  cv.addEventListener("touchstart",pd,{passive:false}); cv.addEventListener("touchmove",pm,{passive:false}); cv.addEventListener("touchend",pu);
+
+  function spawnEnemy(){
+    if(enemies.length>=48)return;
+    const side=rint(4); let x,y;
+    if(side===0){x=-12;y=Math.random()*BLITZ_H;} else if(side===1){x=BLITZ_W+12;y=Math.random()*BLITZ_H;}
+    else if(side===2){x=Math.random()*BLITZ_W;y=-12;} else {x=Math.random()*BLITZ_W;y=BLITZ_H+12;}
+    const hp=8+wave*5, spd=40+wave*4+rint(10), r=8+rint(4);
+    const hue=[ "#e0557a","#7a5cc0","#c0894a","#4a9ac0","#5aa83e" ][rint(5)];
+    enemies.push({x,y,r,hp,maxhp:hp,spd,touch:0,col:hue});
+  }
+  function fire(){
+    if(!enemies.length)return;
+    let best=null,bd=1e9; for(const e of enemies){const d=(e.x-player.x)**2+(e.y-player.y)**2; if(d<bd){bd=d;best=e;}}
+    if(!best)return;
+    const base=Math.atan2(best.y-player.y,best.x-player.x);
+    const n=player.multishot, spread=0.18;
+    for(let i=0;i<n;i++){ const off=(i-(n-1)/2)*spread; const a=base+off;
+      projs.push({x:player.x,y:player.y,vx:Math.cos(a)*300,vy:Math.sin(a)*300,r:player.projR,dmg:player.dmg,pierce:player.pierce,hit:[]}); }
+  }
+  function burst(x,y,col,n){ for(let i=0;i<n;i++){const a=Math.random()*6.28,s=30+Math.random()*60;
+    parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:0.4+Math.random()*0.3,col});} }
+
+  function offerUpgrade(){
+    paused=true; const up=$("bzUp"); if(!up)return;
+    const pool=BLITZ_UPGRADES.slice(); const picks=[];
+    for(let i=0;i<3&&pool.length;i++)picks.push(pool.splice(rint(pool.length),1)[0]);
+    up.innerHTML=`<div style="width:90%"><h3 class="center" style="font-family:var(--pix);font-size:11px;color:#fff;margin:0 0 10px">⚡ Wave ${wave} cleared — pick one!</h3>
+      ${picks.map(u=>`<button class="btn mint" data-bzup="${u.id}" style="width:100%;margin:0 0 8px;text-align:left;display:flex;gap:8px;align-items:center">
+        <span style="font-size:20px">${u.icon}</span><span><b>${u.name}</b><br><span style="font-size:10px;opacity:.85">${u.desc}</span></span></button>`).join("")}</div>`;
+    up.style.display="flex";
+    up.querySelectorAll("[data-bzup]").forEach(b=>b.onclick=()=>{
+      const u=BLITZ_UPGRADES.find(x=>x.id===b.dataset.bzup); if(u)u.apply(player);
+      up.style.display="none"; paused=false; wave++; waveT=0;
+      if(wave>BLITZ_WAVES){ end(true); } else { const w=$("bzWave"); if(w)w.textContent="Wave "+wave; }
+    });
+  }
+  function end(survived){
+    if(ended)return; ended=true;
+    if(window._blitzRAF){cancelAnimationFrame(window._blitzRAF);window._blitzRAF=null;}
+    score+=Math.round(runT*2);
+    const best=Math.max((S.stats&&S.stats.blitzBest)||0, score);
+    if(!S.stats)S.stats={}; S.stats.blitzBest=best;
+    const px=10+Math.round(score/7), dust=score>=300?2+Math.floor(score/600):0;
+    S.pixels+=px; if(dust)S.dust+=dust;
+    questProgress("expeditions"); save(); statbar();
+    showBlitzResult(score,best,kills,survived,px,dust,iid);
+  }
+  function update(dt){
+    runT+=dt;
+    // player move toward pointer
+    if(pointer.active){ const dx=pointer.x-player.x,dy=pointer.y-player.y,d=Math.hypot(dx,dy);
+      if(d>1){ const m=Math.min(d,player.speed*dt); player.x+=dx/d*m; player.y+=dy/d*m; } }
+    player.x=Math.max(player.r,Math.min(BLITZ_W-player.r,player.x));
+    player.y=Math.max(player.r,Math.min(BLITZ_H-player.r,player.y));
+    if(player.hurtCd>0)player.hurtCd-=dt;
+    // auto-fire
+    player.fireCd-=dt; if(player.fireCd<=0){ fire(); player.fireCd=1/player.fireRate; }
+    // wave spawns
+    waveT+=dt; spawnCd-=dt;
+    const spawnEvery=Math.max(0.35,1.4-wave*0.1), perTick=1+Math.floor(wave/4);
+    if(waveT<BLITZ_WAVE_T && spawnCd<=0){ for(let i=0;i<perTick;i++)spawnEnemy(); spawnCd=spawnEvery; }
+    if(waveT>=BLITZ_WAVE_T && (enemies.length===0 || waveT>=BLITZ_WAVE_T+8) && !paused){ offerUpgrade(); }
+    // projectiles
+    for(const pr of projs){ pr.x+=pr.vx*dt; pr.y+=pr.vy*dt;
+      for(const e of enemies){ if(e.hp<=0||pr.hit.includes(e))continue;
+        if((e.x-pr.x)**2+(e.y-pr.y)**2 < (e.r+pr.r)**2){
+          e.hp-=pr.dmg; pr.hit.push(e); burst(pr.x,pr.y,player.mid,3);
+          if(player.lifesteal&&player.hp<player.maxhp){player.hp=Math.min(player.maxhp,player.hp+pr.dmg*player.lifesteal);}
+          if(pr.hit.length>pr.pierce){pr.dead=true;}
+          if(e.hp<=0){ e.dead=true; kills++; score+=10+wave*2; burst(e.x,e.y,e.col,8); }
+          if(pr.dead)break;
+        } } }
+    projs=projs.filter(pr=>!pr.dead && pr.x>-20&&pr.x<BLITZ_W+20&&pr.y>-20&&pr.y<BLITZ_H+20);
+    // enemies
+    for(const e of enemies){ if(e.hp<=0)continue;
+      const dx=player.x-e.x,dy=player.y-e.y,d=Math.hypot(dx,dy)||1; e.x+=dx/d*e.spd*dt; e.y+=dy/d*e.spd*dt;
+      if(e.touch>0)e.touch-=dt;
+      if(d<player.r+e.r && e.touch<=0 && player.hurtCd<=0){
+        const dmg=6+wave*1.4; player.hp-=dmg; e.touch=0.7; player.hurtCd=0.25; sfx("hurt");
+        burst(player.x,player.y,"#ff5a55",6);
+        if(player.hp<=0){ end(false); return; } } }
+    enemies=enemies.filter(e=>e.hp>0);
+    // particles
+    for(const p of parts){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt; }
+    parts=parts.filter(p=>p.life>0);
+  }
+  function draw(){
+    ctx.fillStyle="#141627"; ctx.fillRect(0,0,BLITZ_W,BLITZ_H);
+    ctx.strokeStyle="#ffffff10"; ctx.lineWidth=1;
+    for(let gx=0;gx<BLITZ_W;gx+=40){ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,BLITZ_H);ctx.stroke();}
+    for(let gy=0;gy<BLITZ_H;gy+=40){ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(BLITZ_W,gy);ctx.stroke();}
+    for(const p of parts){ ctx.globalAlpha=Math.max(0,p.life*2.2); ctx.fillStyle=p.col; ctx.fillRect(p.x-2,p.y-2,4,4); }
+    ctx.globalAlpha=1;
+    for(const e of enemies){ ctx.fillStyle=e.col; ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,6.28); ctx.fill();
+      ctx.fillStyle="#1a1a22"; ctx.fillRect(e.x-e.r*0.4,e.y-2,2.4,2.4); ctx.fillRect(e.x+e.r*0.1,e.y-2,2.4,2.4);
+      if(e.hp<e.maxhp){ctx.fillStyle="#0008";ctx.fillRect(e.x-e.r,e.y-e.r-5,e.r*2,3);ctx.fillStyle="#7fe084";ctx.fillRect(e.x-e.r,e.y-e.r-5,e.r*2*(e.hp/e.maxhp),3);} }
+    for(const pr of projs){ ctx.fillStyle=player.glow; ctx.globalAlpha=0.5; ctx.beginPath(); ctx.arc(pr.x,pr.y,pr.r*1.8,0,6.28); ctx.fill();
+      ctx.globalAlpha=1; ctx.fillStyle=player.mid; ctx.beginPath(); ctx.arc(pr.x,pr.y,pr.r,0,6.28); ctx.fill(); }
+    // player
+    ctx.fillStyle="#0006"; ctx.beginPath(); ctx.ellipse(player.x,player.y+player.r*0.8,player.r*0.8,player.r*0.35,0,0,6.28); ctx.fill();
+    if(player.hurtCd>0.12){ctx.globalAlpha=0.5;}
+    if(imgReady){ const s=player.r*2.1; ctx.drawImage(img,player.x-s/2,player.y-s/2,s,s); }
+    else { ctx.fillStyle=player.mid; ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,6.28); ctx.fill(); }
+    ctx.globalAlpha=1;
+    // HUD
+    const hpb=$("bzHp"); if(hpb)hpb.firstElementChild.style.width=Math.max(0,player.hp/player.maxhp*100)+"%";
+    const ti=$("bzTime"); if(ti)ti.textContent=Math.floor(runT)+"s";
+    const sc=$("bzScore"); if(sc)sc.textContent=score;
+  }
+  let last=performance.now();
+  function loop(now){
+    let dt=(now-last)/1000; last=now; if(dt>0.05)dt=0.05;
+    if(!ended){ if(!paused)update(dt); if(!ended)draw(); }
+    if(!ended)window._blitzRAF=requestAnimationFrame(loop);
+  }
+  window._blitzRAF=requestAnimationFrame(loop);
+}
+function showBlitzResult(score,best,kills,survived,px,dust,iid){
+  closeOverlay();
+  const rec=score>=best&&score>0;
+  const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
+    <h2 class="title center" style="color:#a965e8">${survived?"🏆 You Survived!":"♾️ Run Over"}</h2>
+    <div class="center" style="font-size:38px">${survived?"🎉":"💥"}</div>
+    <p class="center" style="margin:4px 0"><b style="font-size:20px">Score ${score}</b></p>
+    <p class="center muted" style="margin:0 0 8px">${kills} popped · ${rec?"🏆 New best!":"Best: "+best}</p>
+    <div class="reward"><span>✦</span> +${px} Pixels</div>
+    ${dust?`<div class="reward"><span>💠</span> +${dust} Stardust</div>`:""}
+    <button class="btn mint" data-act="blitzpick" data-iid="${iid}" style="width:100%">Play again (⚡1)</button>
+    <button class="btn ghost" data-act="closeoverlay" style="width:100%;margin-top:6px">Back to camp</button>
+  </div></div>`);
+  document.body.appendChild(ov);
 }
 function playExpedition(zone){
   if(S.pets.length<3){toast("Befriend a full team of 3 first! 🍳");S.tab="cook";render();return;}
@@ -2077,6 +2292,8 @@ document.addEventListener("click",e=>{
   else if(act==="mbuy"){merchantBuy(+t.dataset.i);}
   else if(act==="merchantleave"){merchantLeave();}
   else if(act==="leaderboard"){showLeaderboard();}
+  else if(act==="blitz"){openBlitz();}
+  else if(act==="blitzpick"){startBlitz(t.dataset.iid);}
   else if(act==="magiclink"){doMagicLink();}
   else if(act==="oauth"){doOAuth(t.dataset.prov);}
   else if(act==="guest"){playAsGuest();}
@@ -2105,6 +2322,7 @@ document.addEventListener("click",e=>{
 function closeOverlay(){
   if(evoTimer){clearTimeout(evoTimer);evoTimer=null;}
   if(energyTimer){clearInterval(energyTimer);energyTimer=null;}
+  if(window._blitzRAF){cancelAnimationFrame(window._blitzRAF);window._blitzRAF=null;}
   if(currentTrack==="battle")playTrack("main");
   document.querySelectorAll(".overlay").forEach(o=>o.remove());
   document.querySelectorAll(".dmgpop").forEach(o=>o.remove());
@@ -2406,6 +2624,7 @@ function sfx(name){
                    b(1319,.4,.5,"square",.06); break;
     case "defeat": [392,349,294,247].forEach((f,i)=>b(f,i*0.15,.2,"triangle",.1)); break;
     case "hit":    b(180+Math.random()*140,0,.05,"square",.05); break;
+    case "hurt":   b(150,0,.09,"sawtooth",.09); b(90,.04,.12,"triangle",.07); break;
     case "level":  [659,784,1047].forEach((f,i)=>b(f,i*0.06,.11)); break;
   }
 }
