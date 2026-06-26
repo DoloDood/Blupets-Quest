@@ -1524,9 +1524,29 @@ function vQuest(){
   <p class="sub">Clear a zone's stages in order — the boss waits on the last one. Team Power: <b>${teamPower}</b> · Zones cleared: <b>${zonesClearedCount()}/${ZONES.length}</b></p>
   ${prepIcons?`<div class="card tint center">🍳 Brew active next run: <b>${prepIcons}</b></div>`:''}
   ${S.party.length===0?`<div class="card center muted">You have no team! Cook a Blupet first. 🍳</div>`:""}
-  ${zones}`;
+  ${zones}
+
+  <div style="margin-top:16px">
+    <button class="btn cyan" data-act="endless" style="width:100%">♾️ Endless Mode — Survive the waves! (1 ⚡)</button>
+    <p class="muted center" style="font-size:11px;margin:6px 0 0">Pick 1 Blupet • Drag to steer • Auto-fires nearest • Upgrades between waves<br>Your leveled stats + stones carry over</p>
+  </div>`;
 }
 
+function startEndlessMode(){
+  if(S.energy < 1){ toast("Out of energy ⚡"); return; }
+  if(!S.pets.length){ toast("Cook a Blupet first!"); return; }
+  const html = `<div class="overlay" data-dismiss="1"><div class="battle">
+    <h2 class="title center">♾️ Endless Mode</h2>
+    <p class="center muted">Pick one Blupet for a 1-minute survival run.</p>
+    <div style="max-height:260px;overflow:auto;margin:10px 0">` + S.pets.map(p => {
+      const st = petStats(p);
+      return `<div class="roster-item" data-act="endlesspick" data-iid="${p.iid}">` + petArtHTML(p,48) + `<div style="flex:1"><div class="ri-name">${petDisplayName(p)}</div><div class="muted" style="font-size:12px">Lv ${p.level} · ❤️${st.hp} ⚔️${st.atk}</div></div></div>`;
+    }).join("") + `</div>
+    <button class="btn ghost" data-act="closeoverlay">Cancel</button>
+  </div></div>`;
+  document.body.appendChild(h(html));
+}
+document.addEventListener("click", function(e){ const t = e.target.closest("[data-act="endlesspick"]"); if(!t) return; closeOverlay(); const p = S.pets.find(x=>x.iid===t.dataset.iid); if(p){ const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle center"><h2>Endless Mode</h2><p>Full version coming soon. Button works!</p><button class="btn mint" data-act="closeoverlay">OK</button></div></div>`); document.body.appendChild(ov); } }, true);
 let CURRENT_VIEW="camp";
 function vPets(){
   const seg=`<div class="seg">
@@ -2064,6 +2084,7 @@ document.addEventListener("click",e=>{
   else if(act==="cook"){startCook(S.cookSel);}
   else if(act==="cookcollect"){collectCook();}
   else if(act==="zone"){const z=ZONES.find(z=>z.id==t.dataset.z);if(z)playExpedition(z);}
+  else if(act==="endless"){startEndlessMode();}
   else if(act==="petdetail"){petDetail(t.dataset.iid);}
   else if(act==="pet"){petPet(t.dataset.iid);}
   else if(act==="decorshop"){showDecorShop();}
