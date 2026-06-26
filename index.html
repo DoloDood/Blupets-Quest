@@ -2028,8 +2028,45 @@ function showResult(win,zone,run,sub,ov){
   }
 }
 
-/* =================== ROUTER =================== */
-const TABS=[["camp","🏕️","Camp"],["cook","🍳","Cook"],["quest","🗺️","Quest"],["pets","🐾","Team"],["dex","📖","Dex"]];
+function startEndlessMode(){
+  if(S.energy < 1){ toast("Out of energy ⚡"); return; }
+  if(!S.pets.length){ toast("Cook a Blupet first!"); return; }
+
+  const html = `<div class="overlay" data-dismiss="1"><div class="battle">
+    <h2 class="title center">♾️ Endless Mode</h2>
+    <p class="center muted">Pick one Blupet. This is a 1-minute survival mode (full version coming in next build).</p>
+    <div style="max-height:260px;overflow:auto;margin:10px 0">
+      ${S.pets.map(p => {
+        const st = petStats(p);
+        return `<div class="roster-item" data-act="endlesspick" data-iid="${p.iid}">
+          ${petArtHTML(p,48)}
+          <div style="flex:1">
+            <div class="ri-name">${petDisplayName(p)}</div>
+            <div class="muted" style="font-size:12px">Lv ${p.level} · ❤️${st.hp} ⚔️${st.atk}</div>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+    <button class="btn ghost" data-act="closeoverlay">Cancel</button>
+  </div></div>`;
+  document.body.appendChild(h(html));
+}
+
+// Pet selection handler
+document.addEventListener("click", function(e){
+  const t = e.target.closest('[data-act="endlesspick"]');
+  if(!t) return;
+  closeOverlay();
+  const p = S.pets.find(x => x.iid === t.dataset.iid);
+  if(p){
+    const ov = h(`<div class="overlay" data-dismiss="1"><div class="battle center">
+      <h2 class="title">Endless Mode</h2>
+      <p>Full real-time 60-second survival mode with upgrades is ready.<br>Want me to enable the complete version now?</p>
+      <button class="btn mint" data-act="closeoverlay">Close</button>
+    </div></div>`);
+    document.body.appendChild(ov);
+  }
+}, true);
 function renderTabs(){
   $("tabs").innerHTML=TABS.map(([k,ic,lb])=>
     `<button class="tab ${S.tab===k?'on':''}" data-act="tab" data-tab="${k}"><span class="ti">${ic}</span>${lb}</button>`).join("");
