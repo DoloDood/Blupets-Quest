@@ -2618,7 +2618,9 @@ function gIcon(){return '<svg viewBox="0 0 18 18" width="15" height="15" style="
 function xIcon(){return '<svg viewBox="0 0 24 24" width="14" height="14" style="vertical-align:-2px" fill="#fff"><path d="M18.9 1.9h3.6l-7.9 9 9.3 12.3h-7.3l-5.7-7.5-6.5 7.5H.8l8.4-9.7L0 1.9h7.5l5.2 6.9 6.2-6.9zm-1.3 18.1h2L6.5 3.9h-2l13.1 16.1z"/></svg>';}
 async function doOAuth(provider){
   if(!sbc){ toast("Sign-in is offline right now"); return; }
-  try{ const {error}=await sbc.auth.signInWithOAuth({provider, options:{redirectTo:location.origin}});
+  const opts={redirectTo:location.origin};
+  if(provider==="x") opts.scopes="users.read tweet.read offline.access";
+  try{ const {error}=await sbc.auth.signInWithOAuth({provider, options:opts});
     if(error)toast("Sign-in error: "+error.message);
   }catch(e){ toast("Network error — try again, or play as guest."); }
 }
