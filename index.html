@@ -1358,6 +1358,7 @@ function vCamp(){
              : `<div class="empty-slot petbob" data-act="tab" data-tab="cook" title="cook a friend">+</div>`;}
   const potC = S.cookSel ? ((BASE.find(b=>b.name===S.cookSel)||{}).hex || "#fff") : "#fff";
   return `
+  <div class="ticker" id="ticker"></div>
   <div class="diorama">
     <div class="stars"></div>
     <div class="sun"></div>
@@ -1376,9 +1377,6 @@ function vCamp(){
     <div class="party-stage">${stage}</div>
   </div>
   ${guideBanner()}
-  <div class="ticker" id="ticker"></div>
-  <h2 class="title">Welcome back!</h2>
-  <p class="sub">Your camp on the Tumble Isles. ${party.length<3?"Tap the pot to cook more Blupets — and tap your friends to pet them!":"Tap your Blupets to pet them, or tap the pot to cook."}</p>
   <div style="display:flex;gap:8px;justify-content:center;margin:0 0 12px;flex-wrap:wrap">
     <button class="btn ghost sm" data-act="quests">📋 Quests${questClaimable()?` <b style="color:#ff5a55">(${questClaimable()})</b>`:""}</button>
     <button class="btn ghost sm" data-act="tab" data-tab="dex">📖 Dex (${dexCount()})</button>
@@ -1389,7 +1387,10 @@ function vCamp(){
     <button class="btn cyan" data-act="blitz">♾️ Endless Mode</button>
   </div>
   <div style="height:10px"></div>
-  <button class="btn ghost" data-act="tab" data-tab="pets" style="width:100%">🐾 Team (${S.pets.length})</button>
+  <div class="grid2">
+    <button class="btn ghost" data-act="tab" data-tab="pets">🐾 Team (${S.pets.length})</button>
+    <button class="btn cyan" data-act="tab" data-tab="cook">🍳 Cook</button>
+  </div>
   <div class="card tint" style="margin-top:14px">
     <div class="ri-name">DAILY TIP</div>
     <p class="muted" style="margin:0">${pick([
