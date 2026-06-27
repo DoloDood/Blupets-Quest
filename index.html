@@ -3130,11 +3130,11 @@ async function doMagicLink(){
   }catch(e){ if(msg)msg.textContent="Network error — try again, or play as guest."; }
 }
 const LB_VIEWS=[["today","Today"],["yesterday","Yesterday"],["week","This Week"],["lastweek","Last Week"],["alltime","All-Time"]];
-// Leaderboard boards. Endless is one board with Wave/Score sub-stats. (bosses/pets/evolves/runs still tracked, just not shown.)
+// Leaderboard boards. Endless ranks by score. (wave/bosses/pets/evolves/runs still tracked, just not shown.)
 function lbCats(view){
   const cats=[
     {key:"mobs", label:"Mobs", stats:[["mobs","Mobs"]]},
-    {key:"endless", label:"Endless", stats:[["endless_wave","Wave"],["endless_score","Score"]]},
+    {key:"endless", label:"Endless", stats:[["endless_score","Endless"]]},
   ];
   if(view==="alltime") cats.push(
     {key:"highest_zone", label:"Zone", stats:[["highest_zone","Zone"]]},
@@ -3142,7 +3142,7 @@ function lbCats(view){
   );
   return cats;
 }
-function lbCatOf(stat){ return (stat==="endless_wave"||stat==="endless_score")?"endless":stat; }
+function lbCatOf(stat){ return stat==="endless_score"?"endless":stat; }
 function lbValidStat(view){ return lbCats(view).some(c=>c.stats.some(s=>s[0]===lbStat)); }
 function lbTarget(view){ // {table, period|null}
   const k=periodKeys();
