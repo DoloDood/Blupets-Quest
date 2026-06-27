@@ -151,6 +151,12 @@
     filter:drop-shadow(0 0 7px #ffd24a);animation:giftbob 1.3s ease-in-out infinite}
   .gift svg{pointer-events:none}
   @keyframes giftbob{0%,100%{transform:translate(-50%,-50%) translateY(0) rotate(-3deg)}50%{transform:translate(-50%,-50%) translateY(-5px) rotate(3deg)}}
+  /* decorate shop button (camp overlay, top-left) */
+  .shopbtn{position:absolute;top:7px;left:7px;z-index:6;cursor:pointer;display:flex;align-items:center;gap:4px;
+    font-family:var(--px);font-size:8px;color:var(--ink);background:var(--cream);border:2px solid var(--line);
+    border-radius:9px;padding:5px 7px;box-shadow:2px 2px 0 var(--shadow);transition:transform .06s, box-shadow .06s}
+  .shopbtn .ic{font-size:13px;line-height:1}
+  .shopbtn:active{transform:translate(2px,2px);box-shadow:0 0 0 var(--shadow)}
   /* merchant */
   .merchant{position:absolute;right:6%;bottom:30%;z-index:4;cursor:pointer;filter:drop-shadow(2px 2px 0 #0002);animation:decorbob 2.6s ease-in-out infinite}
   .merchant svg{pointer-events:none}
@@ -955,6 +961,7 @@ function statbar(){
    `<span class="chip"><span class="ic">✦</span>${S.pixels}</span>
     <button class="chip" data-act="energy" style="cursor:pointer"><span class="ic">⚡</span>${S.energy}/${S.maxEnergy}</button>
     <span class="chip"><span class="ic">📖</span>${dexCount()}</span>
+    <button class="chip" data-act="guide" style="cursor:pointer" title="Field Guide"><span class="ic">📕</span></button>
     <button class="chip" data-act="music" style="cursor:pointer">${S.music===false?'🔇':'🔊'}</button>`;
 }
 
@@ -1355,6 +1362,7 @@ function vCamp(){
     <div class="stars"></div>
     <div class="sun"></div>
     <div class="ledge"></div>
+    <button class="shopbtn" data-act="decorshop" title="Decorate your camp"><span class="ic">🏪</span>Shop</button>
     ${decorHTML()}
     ${dailyReady()?`<div class="gift" data-act="daily" title="Daily gift!">${giftSprite(3)}</div>`:""}
     ${merchantHere?`<div class="merchant" data-act="merchant" title="A merchant is visiting!">${merchantSprite(3)}<span class="merch-pop">!</span></div>`:""}
@@ -1372,20 +1380,16 @@ function vCamp(){
   <h2 class="title">Welcome back!</h2>
   <p class="sub">Your camp on the Tumble Isles. ${party.length<3?"Tap the pot to cook more Blupets — and tap your friends to pet them!":"Tap your Blupets to pet them, or tap the pot to cook."}</p>
   <div style="display:flex;gap:8px;justify-content:center;margin:0 0 12px;flex-wrap:wrap">
-    <button class="btn ghost sm" data-act="guide">📖 Guide</button>
     <button class="btn ghost sm" data-act="quests">📋 Quests${questClaimable()?` <b style="color:#ff5a55">(${questClaimable()})</b>`:""}</button>
+    <button class="btn ghost sm" data-act="tab" data-tab="dex">📖 Dex (${dexCount()})</button>
     <button class="btn ghost sm" data-act="leaderboard">🏆 Leaderboard</button>
-    <button class="btn ghost sm" data-act="decorshop">🎀 Decorate</button>
   </div>
   <div class="grid2">
     <button class="btn blu" data-act="tab" data-tab="quest">🗺️ Expedition</button>
-    <button class="btn cyan" data-act="tab" data-tab="cook">🍳 Cook</button>
+    <button class="btn cyan" data-act="blitz">♾️ Endless Mode</button>
   </div>
   <div style="height:10px"></div>
-  <div class="grid2">
-    <button class="btn ghost" data-act="tab" data-tab="pets">🐾 Team (${S.pets.length})</button>
-    <button class="btn ghost" data-act="tab" data-tab="dex">📖 Dex (${dexCount()})</button>
-  </div>
+  <button class="btn ghost" data-act="tab" data-tab="pets" style="width:100%">🐾 Team (${S.pets.length})</button>
   <div class="card tint" style="margin-top:14px">
     <div class="ri-name">DAILY TIP</div>
     <p class="muted" style="margin:0">${pick([
@@ -1524,15 +1528,7 @@ function vQuest(){
   <p class="sub">Clear a zone's stages in order — the boss waits on the last one. Team Power: <b>${teamPower}</b> · Zones cleared: <b>${zonesClearedCount()}/${ZONES.length}</b></p>
   ${prepIcons?`<div class="card tint center">🍳 Brew active next run: <b>${prepIcons}</b></div>`:''}
   ${S.party.length===0?`<div class="card center muted">You have no team! Cook a Blupet first. 🍳</div>`:""}
-  ${zones}
-  ${S.pets.length?`<div class="zone" data-act="blitz" style="border:2px dashed #a965e8;background:linear-gradient(135deg,#f3ecff,#fff7e6)">
-      <div class="emoji">♾️</div>
-      <div style="flex:1;min-width:0">
-        <div class="zn">Endless Mode ⚡ <span class="tag" style="border-color:#a965e8;color:#8a5cc0">arcade</span></div>
-        <div class="zd">Survive the swarm with one Blupet — drag to move, auto-fire. Stronger pets = better!${S.stats&&S.stats.blitzBest?` · 🏆 Best ${S.stats.blitzBest}`:""}</div>
-      </div>
-      <div class="tag" style="border-color:#a965e8;color:#8a5cc0">⚡1</div>
-    </div>`:""}`;
+  ${zones}`;
 }
 
 let CURRENT_VIEW="camp";
@@ -1816,7 +1812,7 @@ function startBlitz(iid){
   const pet=S.pets.find(p=>p.iid===iid); if(!pet)return;
   if(S.energy<1){toast("Out of energy ⚡");return;}
   S.energy-=1; S.lastTs=Date.now(); save(); statbar();
-  closeOverlay(); playTrack("battle");
+  closeOverlay(); playTrack("arcade");
   const f=buildFighter(pet);
   const ELEC=ELE_PAL[f.ele]||["#ffd24a","#ff7a3c","#d83c18"];
   const player={ x:BLITZ_W/2, y:BLITZ_H/2, r:13,
@@ -1877,7 +1873,7 @@ function startBlitz(iid){
       flash:0, dead:false};
   }
   function spawnEnemy(){ if(enemies.length>=40)return; enemies.push(makeBzFoe(false)); }
-  function spawnChampion(){ enemies.push(makeBzFoe(true)); burst(BLITZ_W/2,40,"#ffd24a",14); sfx&&sfx("hurt"); }
+  function spawnChampion(){ enemies.push(makeBzFoe(true)); burst(BLITZ_W/2,40,"#ffd24a",14); sfx("alarm"); }
   function fire(){
     if(!enemies.length)return;
     let best=null,bd=1e9; for(const e of enemies){const d=(e.x-player.x)**2+(e.y-player.y)**2; if(d<bd){bd=d;best=e;}}
@@ -1951,7 +1947,11 @@ function startBlitz(iid){
           if(pr.hit.length>pr.pierce){pr.dead=true;}
           if(e.hp<=0){ e.dead=true; kills++;
             score += e.champ?(120+wave*6) : e.healer?(28+wave*3) : (10+wave*2); // priority targets pay out
-            burst(e.x,e.y,e.glow,e.champ?16:8); if(e.champ)player.hp=Math.min(player.maxhp,player.hp+Math.round(player.maxhp*0.08)); }
+            burst(e.x,e.y,e.glow,e.champ?16:8);
+            if(e.champ){ sfx("boom"); player.hp=Math.min(player.maxhp,player.hp+Math.round(player.maxhp*0.08)); }
+            else if(e.ranged){ sfx("zap"); }                       // caster/mender = bright pop
+            else { sfx("pop",{pitch: e.r>13?0.6:undefined}); }     // big bruisers/guardians sound deeper
+          }
           if(pr.dead)break;
         } } }
     projs=projs.filter(pr=>!pr.dead && pr.x>-20&&pr.x<BLITZ_W+20&&pr.y>-20&&pr.y<BLITZ_H+20);
@@ -2430,7 +2430,7 @@ function closeOverlay(){
   if(evoTimer){clearTimeout(evoTimer);evoTimer=null;}
   if(energyTimer){clearInterval(energyTimer);energyTimer=null;}
   if(window._blitzRAF){cancelAnimationFrame(window._blitzRAF);window._blitzRAF=null;}
-  if(currentTrack==="battle")playTrack("main");
+  if(currentTrack==="battle"||currentTrack==="arcade")playTrack("main");
   document.querySelectorAll(".overlay").forEach(o=>o.remove());
   document.querySelectorAll(".dmgpop").forEach(o=>o.remove());
 }
@@ -2628,6 +2628,22 @@ const BATTLE_BASS=[["A2",2],["A2",2],["E2",2],["A2",2],["A2",2],["E2",2],["A2",4
  ["A2",2],["A2",2],["E2",2],["A2",2],["G2",2],["G2",2],["D3",2],["G2",2],
  ["F2",2],["F2",2],["C3",2],["F2",2],["E2",2],["B2",2],["E2",2],["B2",2]];
 const BATTLE_PERC=(()=>{const s=[];for(let i=0;i<16;i++){s.push(["A2",1],["0",1],["E2",1],["0",1]);}return s;})();
+/* ---- ARCADE THEME: fast, driving retro shooter loop (E minor, 64-beat) ---- */
+const ARCADE_LEAD=[
+ ["E5",1],["G5",1],["B5",2],["A5",1],["G5",1],["E5",2],
+ ["C5",1],["E5",1],["G5",2],["E5",1],["C5",1],["G4",2],
+ ["D5",1],["G5",1],["B5",2],["A5",1],["G5",1],["D5",2],
+ ["A4",1],["D5",1],["A5",2],["F5",1],["D5",1],["A4",2],
+ ["B5",1],["A5",1],["G5",1],["E5",1],["G5",1],["B5",1],["E5",2],
+ ["G5",1],["E5",1],["C5",1],["E5",1],["G5",2],["C6",2],
+ ["B4",1],["D5",1],["G5",1],["B5",1],["A5",2],["G5",2],
+ ["F5",1],["E5",1],["D5",1],["A4",1],["D5",2],["E5",2]];
+const ARCADE_BASS=(()=>{const r=["E","C","G","D","E","C","G","D"],s=[];
+ for(const n of r)for(let k=0;k<4;k++){s.push([n+"2",1],[n+"3",1]);}return s;})();
+const ARCADE_ARP=(()=>{const ch={E:["E4","G4","B4","E5"],C:["C4","E4","G4","C5"],G:["G3","B3","D4","G4"],D:["D4","F4","A4","D5"]};
+ const order=["E","C","G","D","E","C","G","D"],s=[];
+ for(const c of order){const a=ch[c];[0,1,2,3,3,2,1,0].forEach(i=>s.push([a[i],1]));}return s;})();
+const ARCADE_PERC=(()=>{const s=[];for(let i=0;i<16;i++){s.push(["C2",1],["C5",1],["E2",1],["C5",1]);}return s;})();
 function buildTrack(beat,voices){
   const notes=[]; let length=0;
   for(const v of voices){ let t=0; const dm=v.dm==null?0.9:v.dm;
@@ -2652,6 +2668,11 @@ function buildAllTracks(){
     {seq:BATTLE_LEAD,type:"square",g:0.055},
     {seq:BATTLE_BASS,type:"triangle",g:0.052},
     {seq:BATTLE_PERC,type:"square",g:0.035,dm:0.4}]);
+  TRACKS.arcade=buildTrack(0.102,[
+    {seq:ARCADE_BASS,type:"triangle",g:0.058},
+    {seq:ARCADE_LEAD,type:"square",g:0.05},
+    {seq:ARCADE_ARP,type:"square",g:0.02},
+    {seq:ARCADE_PERC,type:"square",g:0.03,dm:0.3}]);
 }
 buildAllTracks();
 function tone(f,start,dur,type,g){
@@ -2662,6 +2683,25 @@ function tone(f,start,dur,type,g){
   ga.gain.linearRampToValueAtTime(g,start+0.012);
   ga.gain.exponentialRampToValueAtTime(0.0001,start+dur);
   o.connect(ga).connect(master); o.start(start); o.stop(start+dur+0.03);
+}
+/* pitch-swept oscillator — the classic arcade "pew/zap/boom" descent */
+function sweep(start,f0,f1,dur,type,g){
+  if(!actx||!f0)return;
+  const o=actx.createOscillator(), ga=actx.createGain();
+  o.type=type||"square"; o.frequency.setValueAtTime(f0,start);
+  o.frequency.exponentialRampToValueAtTime(Math.max(20,f1),start+dur);
+  ga.gain.setValueAtTime(g,start); ga.gain.exponentialRampToValueAtTime(0.0001,start+dur);
+  o.connect(ga).connect(master); o.start(start); o.stop(start+dur+0.03);
+}
+/* short filtered noise burst — the "crunch" of an explosion */
+function noiseBurst(start,dur,g,filt,freq,q){
+  if(!actx)return;
+  const n=Math.max(1,Math.floor(actx.sampleRate*dur)), buf=actx.createBuffer(1,n,actx.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<n;i++){ d[i]=(Math.random()*2-1)*(1-i/n); } // decaying white noise
+  const src=actx.createBufferSource(); src.buffer=buf;
+  const bq=actx.createBiquadFilter(); bq.type=filt||"bandpass"; bq.frequency.value=freq||1400; if(q)bq.Q.value=q;
+  const ga=actx.createGain(); ga.gain.setValueAtTime(g,start); ga.gain.exponentialRampToValueAtTime(0.0001,start+dur);
+  src.connect(bq).connect(ga).connect(master); src.start(start); src.stop(start+dur+0.02);
 }
 let currentTrack="main", schedTimer=null, loopStart=0, noteIdx=0;
 function scheduler(){
@@ -2715,7 +2755,7 @@ document.addEventListener("pointerup",endDecorDrag);
 document.addEventListener("pointercancel",endDecorDrag);
 
 /* short sound effects, share the music mute */
-function sfx(name){
+function sfx(name,opt){
   if(!actx || S.music===false) return;
   if(actx.state==="suspended") actx.resume();
   const t=actx.currentTime;
@@ -2733,6 +2773,18 @@ function sfx(name){
     case "hit":    b(180+Math.random()*140,0,.05,"square",.05); break;
     case "hurt":   b(150,0,.09,"sawtooth",.09); b(90,.04,.12,"triangle",.07); break;
     case "level":  [659,784,1047].forEach((f,i)=>b(f,i*0.06,.11)); break;
+    /* ---- Endless: enemy destroyed (pitch varies so rapid kills stay lively) ---- */
+    case "pop": { const p=(opt&&opt.pitch)||(0.82+Math.random()*0.36);
+                  sweep(t,560*p,150*p,0.12,"square",0.10);
+                  noiseBurst(t,0.11,0.07,"bandpass",1500*p,1.1);
+                  b(680*p,0,.04,"square",.05); break; }
+    case "zap":   sweep(t,900,260,0.09,"square",0.07); b(1320,0,.04,"square",.05); break; // ranged foe popped
+    /* ---- Champion / mini-boss destroyed: a big layered explosion ---- */
+    case "boom":  sweep(t,300,55,0.34,"sawtooth",0.13); sweep(t,170,40,0.40,"triangle",0.11);
+                  noiseBurst(t,0.40,0.16,"lowpass",900,0.8); noiseBurst(t+0.02,0.18,0.10,"bandpass",2200,1.2);
+                  b(110,0,.14,"triangle",.12); break;
+    /* ---- Champion incoming alert ---- */
+    case "alarm": b(660,0,.1,"square",.09); b(880,.12,.1,"square",.09); b(660,.26,.1,"square",.09); b(1047,.38,.18,"square",.1); break;
   }
 }
 /* floating damage number popped over a battle fighter */
