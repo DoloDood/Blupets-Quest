@@ -3130,9 +3130,20 @@ async function doMagicLink(){
   }catch(e){ if(msg)msg.textContent="Network error — try again, or play as guest."; }
 }
 const LB_VIEWS=[["today","Today"],["yesterday","Yesterday"],["week","This Week"],["lastweek","Last Week"],["alltime","All-Time"]];
-const LB_COUNT_STATS=[["mobs","Mobs"],["bosses","Bosses"],["endless_wave","Endless"],["endless_score","Score"],["pets","Pets"],["evolutions","Evolves"],["expeditions","Runs"]];
-const LB_ALL_STATS=[...LB_COUNT_STATS,["highest_zone","Zone"],["highest_level","Level"]];
-function lbStatsFor(view){ return view==="alltime"?LB_ALL_STATS:LB_COUNT_STATS; }
+// Leaderboard boards. Endless is one board with Wave/Score sub-stats. (bosses/pets/evolves/runs still tracked, just not shown.)
+function lbCats(view){
+  const cats=[
+    {key:"mobs", label:"Mobs", stats:[["mobs","Mobs"]]},
+    {key:"endless", label:"Endless", stats:[["endless_wave","Wave"],["endless_score","Score"]]},
+  ];
+  if(view==="alltime") cats.push(
+    {key:"highest_zone", label:"Zone", stats:[["highest_zone","Zone"]]},
+    {key:"highest_level", label:"Level", stats:[["highest_level","Level"]]}
+  );
+  return cats;
+}
+function lbCatOf(stat){ return (stat==="endless_wave"||stat==="endless_score")?"endless":stat; }
+function lbValidStat(view){ return lbCats(view).some(c=>c.stats.some(s=>s[0]===lbStat)); }
 function lbTarget(view){ // {table, period|null}
   const k=periodKeys();
   if(view==="today")    return {table:"lb_daily",  period:k.day};
@@ -3152,13 +3163,14 @@ function lbResetNote(view){
 function showLeaderboard(){
   syncLeaderboard();
   const needName = !isGuest && authUser && !S.username;
-  if(!lbStatsFor(lbView).some(([k])=>k===lbStat))lbStat="mobs";
+  if(!lbValidStat(lbView))lbStat="mobs";
   const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
     <div class="center" style="font-size:30px">🏆</div>
     <h2 class="title center">Leaderboard</h2>
     <div id="commBox" class="commbox"></div>
     <div id="lbViews" class="lbtabs"></div>
     <div id="lbTabs" class="lbtabs" style="margin-top:6px"></div>
+    <div id="lbSub" class="lbtabs" style="margin-top:6px;display:none"></div>
     <div id="lbNote" class="muted center" style="font-size:10px;margin-top:6px"></div>
     <div id="lbBody" class="muted center" style="margin-top:8px;min-height:60px">Loading…</div>
     ${needName?`<button class="btn mint" data-act="setname" style="width:100%;margin-top:8px">Choose a name to join</button>`:""}
@@ -3172,13 +3184,28 @@ function renderLbViews(ov){
   const t=ov.querySelector("#lbViews"); if(!t)return;
   t.innerHTML=LB_VIEWS.map(([k,lb])=>`<button class="lbtab ${lbView===k?'on':''}" data-lv="${k}">${lb}</button>`).join("");
   t.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{ lbView=b.dataset.lv;
-    if(!lbStatsFor(lbView).some(([k])=>k===lbStat))lbStat="mobs";
+    if(!lbValidStat(lbView))lbStat="mobs";
     renderLbViews(ov); renderLbTabs(ov); loadLb(ov); });
 }
 function renderLbTabs(ov){
   const t=ov.querySelector("#lbTabs"); if(!t)return;
-  t.innerHTML=lbStatsFor(lbView).map(([k,lb])=>`<button class="lbtab ${lbStat===k?'on':''}" data-lb="${k}">${lb}</button>`).join("");
-  t.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{ lbStat=b.dataset.lb; renderLbTabs(ov); loadLb(ov); });
+  const cats=lbCats(lbView), curCat=lbCatOf(lbStat);
+  t.innerHTML=cats.map(c=>`<button class="lbtab ${curCat===c.key?'on':''}" data-cat="${c.key}">${c.label}</button>`).join("");
+  t.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{
+    const c=cats.find(x=>x.key===b.dataset.cat); if(!c)return;
+    if(!c.stats.some(s=>s[0]===lbStat)) lbStat=c.stats[0][0]; // keep current Endless sub-choice when re-selecting Endless
+    renderLbTabs(ov); loadLb(ov);
+  });
+  // Endless sub-toggle (Wave / Score) — only shows when a grouped board is selected
+  const sub=ov.querySelector("#lbSub");
+  if(sub){
+    const cat=cats.find(c=>c.key===curCat);
+    if(cat && cat.stats.length>1){
+      sub.style.display="flex";
+      sub.innerHTML=cat.stats.map(([k,lb])=>`<button class="lbtab ${lbStat===k?'on':''}" data-sub="${k}">${lb}</button>`).join("");
+      sub.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{ lbStat=b.dataset.sub; renderLbTabs(ov); loadLb(ov); });
+    } else { sub.style.display="none"; sub.innerHTML=""; }
+  }
   const note=ov.querySelector("#lbNote"); if(note)note.textContent=lbResetNote(lbView);
 }
 async function loadLb(ov){
