@@ -1838,8 +1838,10 @@ function startBlitz(iid){
   let enemies=[], projs=[], eprojs=[], parts=[];
   let wave=1, waveT=0, runT=0, score=0, kills=0, spawnCd=0, champDone=0;
   let phase="fight", paused=false, ended=false;
-  const pointer={x:BLITZ_W/2,y:BLITZ_H/2,active:false};
+  const STICK_R=46, STICK_DEAD=5;
+  const pointer={ax:BLITZ_W/2,ay:BLITZ_H/2,x:BLITZ_W/2,y:BLITZ_H/2,active:false};
 
+  document.querySelectorAll(".chatbub,.heartpop").forEach(b=>b.remove()); // clear stray camp bubbles before the game opens
   const ov=h(`<div class="overlay" id="blitzOv"><div class="arena-wrap" style="max-width:374px">
     <div class="wave-tag" id="bzTag" style="display:flex;justify-content:space-between;padding:0 4px">
       <span id="bzWave">Wave 1</span><span id="bzTime">0s</span><span id="bzScore">0</span></div>
@@ -1849,18 +1851,21 @@ function startBlitz(iid){
         <i style="display:block;height:100%;width:100%;background:linear-gradient(90deg,#ff5a55,#ff9a4a)"></i></div>
       <div id="bzUp" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:#0b0d1ad9;border-radius:12px"></div>
     </div>
-    <div class="arena-foot"><span class="muted" style="font-size:11px">drag to move · auto-fires</span>
+    <div class="arena-foot"><span class="muted" style="font-size:11px">press & steer anywhere · auto-fires</span>
       <button class="btn ghost sm" data-act="closeoverlay">quit</button></div>
   </div></div>`);
   document.body.appendChild(ov);
   const cv=$("bzCv"), ctx=cv.getContext("2d");
   function toCv(e){const r=cv.getBoundingClientRect(),sx=cv.width/r.width,sy=cv.height/r.height;
     const t=e.touches?e.touches[0]:e; return {x:(t.clientX-r.left)*sx, y:(t.clientY-r.top)*sy};}
-  function pd(e){pointer.active=true;const c=toCv(e);pointer.x=c.x;pointer.y=c.y;e.preventDefault();}
-  function pm(e){if(!pointer.active)return;const c=toCv(e);pointer.x=c.x;pointer.y=c.y;e.preventDefault();}
+  function pd(e){const c=toCv(e);pointer.active=true;pointer.ax=c.x;pointer.ay=c.y;pointer.x=c.x;pointer.y=c.y;e.preventDefault();}
+  function pm(e){if(!pointer.active)return;const c=toCv(e);pointer.x=c.x;pointer.y=c.y;
+    const dx=pointer.x-pointer.ax,dy=pointer.y-pointer.ay,d=Math.hypot(dx,dy);
+    if(d>STICK_R){ pointer.ax=pointer.x-dx/d*STICK_R; pointer.ay=pointer.y-dy/d*STICK_R; } // anchor trails the finger past max throw
+    e.preventDefault();}
   function pu(){pointer.active=false;}
   cv.addEventListener("mousedown",pd); cv.addEventListener("mousemove",pm); window.addEventListener("mouseup",pu);
-  cv.addEventListener("touchstart",pd,{passive:false}); cv.addEventListener("touchmove",pm,{passive:false}); cv.addEventListener("touchend",pu);
+  cv.addEventListener("touchstart",pd,{passive:false}); cv.addEventListener("touchmove",pm,{passive:false}); cv.addEventListener("touchend",pu); cv.addEventListener("touchcancel",pu);
 
   function edgeSpawn(){
     const side=rint(4);
@@ -1927,6 +1932,10 @@ function startBlitz(iid){
     const best=Math.max((S.stats&&S.stats.blitzBest)||0, score);
     if(!S.stats)S.stats={}; S.stats.blitzBest=best;
     if((S.stats.blitzWave||0)<wave) S.stats.blitzWave=wave;
+    if(!isGuest){ rolloverCheck(); if(S.lb){ S.lb.dayStats=S.lb.dayStats||{}; S.lb.weekStats=S.lb.weekStats||{};
+      S.lb.dayStats.blitzWave=Math.max(S.lb.dayStats.blitzWave||0, wave);
+      S.lb.weekStats.blitzWave=Math.max(S.lb.weekStats.blitzWave||0, wave); } }
+    if(wave>=5) logActivity("endless", "reached Endless Wave "+wave);
     const px=10+Math.round(score/7), dust=score>=300?2+Math.floor(score/600):0;
     S.pixels+=px; if(dust)S.dust+=dust;
     questProgress("expeditions"); save(); statbar();
@@ -1934,9 +1943,10 @@ function startBlitz(iid){
   }
   function update(dt){
     runT+=dt;
-    // player move toward pointer
-    if(pointer.active){ const dx=pointer.x-player.x,dy=pointer.y-player.y,d=Math.hypot(dx,dy);
-      if(d>1){ const m=Math.min(d,player.speed*dt); player.x+=dx/d*m; player.y+=dy/d*m; } }
+    // player steered by floating joystick (direction = push from anchor, speed scales with throw)
+    if(pointer.active){ const dx=pointer.x-pointer.ax,dy=pointer.y-pointer.ay,d=Math.hypot(dx,dy);
+      if(d>STICK_DEAD){ const mag=Math.min(1,(d-STICK_DEAD)/(STICK_R-STICK_DEAD));
+        const m=player.speed*mag*dt; player.x+=dx/d*m; player.y+=dy/d*m; } }
     player.x=Math.max(player.r,Math.min(BLITZ_W-player.r,player.x));
     player.y=Math.max(player.r,Math.min(BLITZ_H-player.r,player.y));
     if(player.hurtCd>0)player.hurtCd-=dt;
@@ -2046,6 +2056,15 @@ function startBlitz(iid){
     if(imgReady){ const s=player.r*2.1; ctx.drawImage(img,player.x-s/2,player.y-s/2,s,s); }
     else { ctx.fillStyle=player.mid; ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,6.28); ctx.fill(); }
     ctx.globalAlpha=1;
+    // virtual joystick
+    if(pointer.active){
+      let kx=pointer.x,ky=pointer.y; const jdx=kx-pointer.ax,jdy=ky-pointer.ay,jd=Math.hypot(jdx,jdy);
+      if(jd>STICK_R){ kx=pointer.ax+jdx/jd*STICK_R; ky=pointer.ay+jdy/jd*STICK_R; }
+      ctx.globalAlpha=0.35; ctx.strokeStyle="#ffffff"; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(pointer.ax,pointer.ay,STICK_R,0,6.28); ctx.stroke();
+      ctx.globalAlpha=0.6; ctx.fillStyle="#ffffff"; ctx.beginPath(); ctx.arc(kx,ky,13,0,6.28); ctx.fill();
+      ctx.globalAlpha=1; ctx.lineWidth=1;
+    }
     // HUD
     const hpb=$("bzHp"); if(hpb)hpb.firstElementChild.style.width=Math.max(0,player.hp/player.maxhp*100)+"%";
     const ti=$("bzTime"); if(ti)ti.textContent=Math.floor(runT)+"s";
@@ -2906,6 +2925,7 @@ function activityText(r){ const who=esc(r.username), d=esc(r.detail||"");
   if(r.kind==="evolve")return `🌟 ${who} evolved ${d}`;
   if(r.kind==="boss")return `⚔️ ${who} beat the ${d}`;
   if(r.kind==="zone")return `🏆 ${who} cleared ${d}`;
+  if(r.kind==="endless")return `♾️ ${who} ${d}`;
   return `${who} ${d}`;
 }
 async function refreshTicker(){
@@ -2994,6 +3014,11 @@ function syncLeaderboard(){ if(isGuest||!sbc||!authUser||!S.username)return;
       mobs:d.mobs||0,bosses:d.bosses||0,pets:d.pets||0,evolutions:d.evolutions||0,expeditions:d.expeditions||0}).then(()=>{},()=>{}); }catch(e){}
   try{ sbc.from("lb_weekly").upsert({...base, period:lb.week,
       mobs:w.mobs||0,bosses:w.bosses||0,pets:w.pets||0,evolutions:w.evolutions||0,expeditions:w.expeditions||0}).then(()=>{},()=>{}); }catch(e){}
+  // Endless best-wave — kept as isolated upserts so a missing column can't break the other stat writes
+  const ewA=st.blitzWave||0, ewD=(d.blitzWave||0), ewW=(w.blitzWave||0);
+  try{ sbc.from("leaderboard").upsert({...base, endless_wave:ewA}).then(()=>{},()=>{}); }catch(e){}
+  try{ sbc.from("lb_daily").upsert({...base, period:lb.day, endless_wave:ewD}).then(()=>{},()=>{}); }catch(e){}
+  try{ sbc.from("lb_weekly").upsert({...base, period:lb.week, endless_wave:ewW}).then(()=>{},()=>{}); }catch(e){}
 }
 function enterGame(){ if(!isGuest)rolloverCheck(); regenEnergy(); statbar(); renderTabs(); if(S.cooking)startCookTicker(); if(S.started)render(); else startFlow(); }
 function playAsGuest(){ isGuest=true; authUser=null; load(); enterGame(); }
@@ -3099,7 +3124,7 @@ async function doMagicLink(){
   }catch(e){ if(msg)msg.textContent="Network error — try again, or play as guest."; }
 }
 const LB_VIEWS=[["today","Today"],["yesterday","Yesterday"],["week","This Week"],["lastweek","Last Week"],["alltime","All-Time"]];
-const LB_COUNT_STATS=[["mobs","Mobs"],["bosses","Bosses"],["pets","Pets"],["evolutions","Evolves"],["expeditions","Runs"]];
+const LB_COUNT_STATS=[["mobs","Mobs"],["bosses","Bosses"],["endless_wave","Endless"],["pets","Pets"],["evolutions","Evolves"],["expeditions","Runs"]];
 const LB_ALL_STATS=[...LB_COUNT_STATS,["highest_zone","Zone"],["highest_level","Level"]];
 function lbStatsFor(view){ return view==="alltime"?LB_ALL_STATS:LB_COUNT_STATS; }
 function lbTarget(view){ // {table, period|null}
@@ -3110,6 +3135,7 @@ function lbTarget(view){ // {table, period|null}
   if(view==="lastweek") return {table:"lb_weekly", period:addDaysKey(k.week,-7)};
   return {table:"leaderboard", period:null};
 }
+function lbFmt(stat,v){ v=v||0; return stat==="endless_wave"?("Wave "+v):(""+v); }
 function lbResetNote(view){
   if(view==="today")return "Resets at midnight (Eastern).";
   if(view==="week")return "Resets Sunday midnight (Eastern).";
@@ -3164,7 +3190,7 @@ async function loadLb(ov){
       const me=myId&&r.user_id===myId;
       const medal=i===0?"🥇":i===1?"🥈":i===2?"🥉":(i+1);
       return `<div class="lbrow${me?' me':''}"><span class="lbrank">${medal}</span>
-        <span class="lbname">${esc(r.username)}</span><span class="lbval">${r[stat]||0}</span></div>`;
+        <span class="lbname">${esc(r.username)}</span><span class="lbval">${lbFmt(stat,r[stat])}</span></div>`;
     }).join("");
     let mine="";
     const inTop = myId && data.some(r=>r.user_id===myId);
@@ -3178,7 +3204,7 @@ async function loadLb(ov){
           let cq=sbc.from(table).select("*",{count:"exact",head:true}).gt(stat,myVal); if(period)cq=cq.eq("period",period);
           const {count}=await cq;
           mine=`<div class="lbrow me" style="margin-top:8px"><span class="lbrank">${(count||0)+1}</span>
-            <span class="lbname">${esc(S.username)} (you)</span><span class="lbval">${myVal}</span></div>`;
+            <span class="lbname">${esc(S.username)} (you)</span><span class="lbval">${lbFmt(stat,myVal)}</span></div>`;
         } else {
           mine=`<div class="muted center" style="margin-top:8px;font-size:11px">You're not on this board yet — play to climb!</div>`;
         }
@@ -3202,6 +3228,7 @@ async function bootAuth(){
 applyTimeTheme(); setInterval(applyTimeTheme, 60000);
 setInterval(()=>{
   if(!S||S.tab!=="camp")return;
+  if(document.querySelector(".overlay"))return; // don't animate behind the Endless game or any open screen
   spawnAmbiance();
   const nodes=document.querySelectorAll('.party-stage [data-petslot]');
   if(!nodes.length)return;
