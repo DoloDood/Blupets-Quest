@@ -1934,7 +1934,9 @@ function startBlitz(iid){
     if((S.stats.blitzWave||0)<wave) S.stats.blitzWave=wave;
     if(!isGuest){ rolloverCheck(); if(S.lb){ S.lb.dayStats=S.lb.dayStats||{}; S.lb.weekStats=S.lb.weekStats||{};
       S.lb.dayStats.blitzWave=Math.max(S.lb.dayStats.blitzWave||0, wave);
-      S.lb.weekStats.blitzWave=Math.max(S.lb.weekStats.blitzWave||0, wave); } }
+      S.lb.weekStats.blitzWave=Math.max(S.lb.weekStats.blitzWave||0, wave);
+      S.lb.dayStats.blitzScore=Math.max(S.lb.dayStats.blitzScore||0, score);
+      S.lb.weekStats.blitzScore=Math.max(S.lb.weekStats.blitzScore||0, score); } }
     if(wave>=5) logActivity("endless", "reached Endless Wave "+wave);
     const px=10+Math.round(score/7), dust=score>=300?2+Math.floor(score/600):0;
     S.pixels+=px; if(dust)S.dust+=dust;
@@ -3014,11 +3016,15 @@ function syncLeaderboard(){ if(isGuest||!sbc||!authUser||!S.username)return;
       mobs:d.mobs||0,bosses:d.bosses||0,pets:d.pets||0,evolutions:d.evolutions||0,expeditions:d.expeditions||0}).then(()=>{},()=>{}); }catch(e){}
   try{ sbc.from("lb_weekly").upsert({...base, period:lb.week,
       mobs:w.mobs||0,bosses:w.bosses||0,pets:w.pets||0,evolutions:w.evolutions||0,expeditions:w.expeditions||0}).then(()=>{},()=>{}); }catch(e){}
-  // Endless best-wave — kept as isolated upserts so a missing column can't break the other stat writes
+  // Endless best-wave & best-score — kept as isolated upserts so a missing column can't break the other stat writes
   const ewA=st.blitzWave||0, ewD=(d.blitzWave||0), ewW=(w.blitzWave||0);
+  const esA=st.blitzBest||0, esD=(d.blitzScore||0), esW=(w.blitzScore||0);
   try{ sbc.from("leaderboard").upsert({...base, endless_wave:ewA}).then(()=>{},()=>{}); }catch(e){}
   try{ sbc.from("lb_daily").upsert({...base, period:lb.day, endless_wave:ewD}).then(()=>{},()=>{}); }catch(e){}
   try{ sbc.from("lb_weekly").upsert({...base, period:lb.week, endless_wave:ewW}).then(()=>{},()=>{}); }catch(e){}
+  try{ sbc.from("leaderboard").upsert({...base, endless_score:esA}).then(()=>{},()=>{}); }catch(e){}
+  try{ sbc.from("lb_daily").upsert({...base, period:lb.day, endless_score:esD}).then(()=>{},()=>{}); }catch(e){}
+  try{ sbc.from("lb_weekly").upsert({...base, period:lb.week, endless_score:esW}).then(()=>{},()=>{}); }catch(e){}
 }
 function enterGame(){ if(!isGuest)rolloverCheck(); regenEnergy(); statbar(); renderTabs(); if(S.cooking)startCookTicker(); if(S.started)render(); else startFlow(); }
 function playAsGuest(){ isGuest=true; authUser=null; load(); enterGame(); }
@@ -3124,7 +3130,7 @@ async function doMagicLink(){
   }catch(e){ if(msg)msg.textContent="Network error — try again, or play as guest."; }
 }
 const LB_VIEWS=[["today","Today"],["yesterday","Yesterday"],["week","This Week"],["lastweek","Last Week"],["alltime","All-Time"]];
-const LB_COUNT_STATS=[["mobs","Mobs"],["bosses","Bosses"],["endless_wave","Endless"],["pets","Pets"],["evolutions","Evolves"],["expeditions","Runs"]];
+const LB_COUNT_STATS=[["mobs","Mobs"],["bosses","Bosses"],["endless_wave","Endless"],["endless_score","Score"],["pets","Pets"],["evolutions","Evolves"],["expeditions","Runs"]];
 const LB_ALL_STATS=[...LB_COUNT_STATS,["highest_zone","Zone"],["highest_level","Level"]];
 function lbStatsFor(view){ return view==="alltime"?LB_ALL_STATS:LB_COUNT_STATS; }
 function lbTarget(view){ // {table, period|null}
@@ -3135,7 +3141,7 @@ function lbTarget(view){ // {table, period|null}
   if(view==="lastweek") return {table:"lb_weekly", period:addDaysKey(k.week,-7)};
   return {table:"leaderboard", period:null};
 }
-function lbFmt(stat,v){ v=v||0; return stat==="endless_wave"?("Wave "+v):(""+v); }
+function lbFmt(stat,v){ v=v||0; return stat==="endless_wave"?("Wave "+v):stat==="endless_score"?v.toLocaleString():(""+v); }
 function lbResetNote(view){
   if(view==="today")return "Resets at midnight (Eastern).";
   if(view==="week")return "Resets Sunday midnight (Eastern).";
