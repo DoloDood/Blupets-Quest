@@ -1173,17 +1173,25 @@ function showDailyReward(){
   const today=dailyKey(), yest=addDaysKey(today,-1);
   const streak=(S.daily && S.daily.last===yest)?(S.daily.streak||0)+1:1;
   const d=Math.min(streak,7), px=20+d*6, bn=2+Math.floor(d/2), dust=(streak%3===0||streak>=7)?3:0;
+  const milestone=(streak%7===0);
+  const cyc=((streak-1)%7)+1; // position in the current 7-day cycle
+  const track=Array.from({length:7},(_,i)=>{ const n=i+1, on=n<=cyc, mile=n===7, cur=n===cyc;
+    return `<div style="flex:1;height:24px;border-radius:6px;border:2px solid ${on?'var(--sun)':'#0000001f'};
+      background:${on?(mile?'var(--sun)':'#ffe9a8'):'transparent'};display:flex;align-items:center;justify-content:center;
+      font-family:var(--px);font-size:9px;color:${on?'#8a5f00':'#bbb'};${cur?'box-shadow:0 0 0 2px var(--coral)':''}">${mile?'🎁':n}</div>`;
+  }).join("");
   const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
     <div class="center">${giftSprite(6)}</div>
     <h2 class="title center">Daily Gift</h2>
-    <p class="center muted" style="margin:2px 0 12px">🔥 Day ${streak} streak — keep visiting each day for bigger rewards!</p>
+    <p class="center muted" style="margin:2px 0 8px">🔥 Day ${streak} streak${milestone?' — milestone reward unlocked! 🎁':' — keep visiting for bigger rewards!'}</p>
+    <div style="display:flex;gap:4px;margin:0 0 12px">${track}</div>
     <div id="dailyBody" class="center">
-      <button class="btn mint" data-act="claimdaily" data-px="${px}" data-bn="${bn}" data-dust="${dust}" data-streak="${streak}" style="width:100%">Open gift 🎁</button>
+      <button class="btn mint" data-act="claimdaily" data-px="${px}" data-bn="${bn}" data-dust="${dust}" data-streak="${streak}" data-mile="${milestone?1:0}" style="width:100%">Open gift 🎁</button>
     </div>
   </div></div>`);
   document.body.appendChild(ov);
 }
-function claimDaily(px,bn,dust,streak){
+function claimDaily(px,bn,dust,streak,mile){
   S.daily={last:dailyKey(), streak};
   S.pixels+=px;
   const got=[];
@@ -1192,6 +1200,8 @@ function claimDaily(px,bn,dust,streak){
   for(let i=0;i<bn;i++){const c=pick(BASE).name; S.bits[c]=(S.bits[c]||0)+1; bits[c]=(bits[c]||0)+1;}
   got.push(Object.keys(bits).map(c=>`${bits[c]}× ${c} Bit`).join(", "));
   if(dust){ S.dust+=dust; got.push(`💠 ${dust} Stardust`); }
+  if(mile){ S.dust+=3; const k=pick(STONE_ORDER); S.stones.push({id:"s"+Date.now()+rint(99999),kind:k,tier:"basic"});
+    got.push(`🎁 Milestone: 💠 3 Stardust + a Power Stone`); }
   sfx("victory"); save(); statbar();
   const body=document.getElementById("dailyBody");
   if(body)body.innerHTML=`<div class="card" style="margin:0 0 10px"><div class="gbody center">You received:<br><b>${got.filter(Boolean).join("<br>")}</b></div></div>
@@ -1210,6 +1220,7 @@ const QUEST_POOL=[
   {type:"expeditions", verb:"Win",    noun:"expeditions",  targets:[2,3,4],    rw:{px:50,dust:1}},
   {type:"evolve",      verb:"Evolve", noun:"Blupets",      targets:[1,2],      rw:{px:70,dust:3}},
   {type:"boss",        verb:"Defeat", noun:"bosses",       targets:[1,2],      rw:{px:60,dust:2}},
+  {type:"endlessWave", verb:"Reach Wave", noun:"in Endless", targets:[8,12,16], rw:{px:65,dust:2}},
 ];
 function genDailyQuests(){
   const pool=QUEST_POOL.slice(), out=[];
@@ -1223,14 +1234,31 @@ function questDef(type){ return QUEST_POOL.find(q=>q.type===type); }
 function questText(q){ const d=questDef(q.type); return `${d.verb} ${q.target} ${d.noun}`; }
 function ensureQuests(){
   const today=dailyKey();
-  if(!S.quests || S.quests.day!==today){ S.quests={day:today, list:genDailyQuests()}; save(); }
+  if(!S.quests || S.quests.day!==today){ S.quests={day:today, list:genDailyQuests(), bonusClaimed:false}; save(); }
+  if(S.quests.bonusClaimed==null)S.quests.bonusClaimed=false;
 }
 function questProgress(type,n){
   if(!S.quests||!S.quests.list)return; n=(n==null?1:n); let changed=false;
   for(const q of S.quests.list){ if(q.type===type && !q.claimed && q.prog<q.target){ q.prog=Math.min(q.target,q.prog+n); changed=true; } }
   if(changed)save();
 }
-function questClaimable(){ ensureQuests(); return (S.quests.list||[]).filter(q=>!q.claimed && q.prog>=q.target).length; }
+function questProgressMax(type,value){ // for high-water-mark goals (e.g. wave reached), not cumulative counts
+  if(!S.quests||!S.quests.list)return; let changed=false;
+  for(const q of S.quests.list){ if(q.type===type && !q.claimed && value>q.prog){ q.prog=Math.min(q.target,value); changed=true; } }
+  if(changed)save();
+}
+const DAILY_BONUS={px:120,dust:5};
+function dailyAllClaimed(){ ensureQuests(); const l=S.quests.list||[]; return l.length>0 && l.every(q=>q.claimed); }
+function dailyBonusReady(){ return dailyAllClaimed() && !S.quests.bonusClaimed; }
+function claimAllBonus(){
+  if(!dailyBonusReady())return;
+  S.quests.bonusClaimed=true;
+  S.pixels+=DAILY_BONUS.px; S.dust+=DAILY_BONUS.dust;
+  const k=pick(STONE_ORDER); S.stones.push({id:"s"+Date.now()+rint(99999),kind:k,tier:"basic"});
+  sfx("victory"); save(); statbar(); toast(`Daily bonus! ✦${DAILY_BONUS.px} · 💠${DAILY_BONUS.dust} · a Power Stone`);
+  showQuests();
+}
+function questClaimable(){ ensureQuests(); return (S.quests.list||[]).filter(q=>!q.claimed && q.prog>=q.target).length + (dailyBonusReady()?1:0); }
 function claimQuest(i){
   const q=S.quests&&S.quests.list&&S.quests.list[i]; if(!q||q.claimed||q.prog<q.target)return;
   const rw=questDef(q.type).rw; q.claimed=true;
@@ -1258,10 +1286,24 @@ function showQuests(){
           :`<span class="muted" style="font-size:11px">In progress…</span>`}
       </div></div>`;
   }).join("");
+  const list=S.quests.list||[], claimedCount=list.filter(q=>q.claimed).length, total=list.length;
+  const bonusDone=S.quests.bonusClaimed, bonusReady=dailyBonusReady();
+  const bonusCard=`<div class="card tint" style="margin:10px 0 8px;border-color:var(--sun)">
+    <div class="ri-name" style="display:flex;justify-content:space-between;align-items:center">
+      <span>🎁 Clear all ${total} for a bonus chest</span>
+      <span class="muted" style="font-size:11px">✦${DAILY_BONUS.px} 💠${DAILY_BONUS.dust} 💎</span></div>
+    <div class="goal-bar" style="margin:6px 0 4px"><i style="width:${Math.round(claimedCount/Math.max(1,total)*100)}%"></i></div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span class="muted" style="font-size:11px">${claimedCount}/${total} claimed</span>
+      ${bonusDone?`<span class="muted" style="font-size:11px">Claimed ✅</span>`
+        :bonusReady?`<button class="btn sm" data-act="claimallbonus">Open chest 🎁</button>`
+        :`<span class="muted" style="font-size:11px">Locked</span>`}
+    </div></div>`;
   const ov=h(`<div class="overlay" data-dismiss="1"><div class="sheet">
     <h2 class="title center">📋 Daily Quests</h2>
     <p class="center muted" style="margin:2px 0 12px;font-size:12px">Fresh quests every day — come back tomorrow for more!</p>
     ${rows}
+    ${bonusCard}
     <button class="btn ghost" data-act="closeoverlay" style="width:100%;margin-top:4px">Close</button>
   </div></div>`);
   document.body.appendChild(ov);
@@ -1947,7 +1989,7 @@ function startBlitz(iid){
     if(wave>=5) logActivity("endless", "reached Endless Wave "+wave);
     const px=10+Math.round(score/7), dust=score>=300?2+Math.floor(score/600):0;
     S.pixels+=px; if(dust)S.dust+=dust;
-    questProgress("expeditions"); save(); statbar();
+    questProgress("expeditions"); questProgressMax("endlessWave", wave); save(); statbar();
     showBlitzResult(score,best,kills,wave,px,dust,iid);
   }
   function update(dt){
@@ -2434,8 +2476,9 @@ document.addEventListener("click",e=>{
   else if(act==="guide"){showGuide();}
   else if(act==="quests"){showQuests();}
   else if(act==="claimquest"){claimQuest(+t.dataset.i);}
+  else if(act==="claimallbonus"){claimAllBonus();}
   else if(act==="daily"){showDailyReward();}
-  else if(act==="claimdaily"){claimDaily(+t.dataset.px,+t.dataset.bn,+t.dataset.dust,+t.dataset.streak);}
+  else if(act==="claimdaily"){claimDaily(+t.dataset.px,+t.dataset.bn,+t.dataset.dust,+t.dataset.streak,+t.dataset.mile);}
   else if(act==="star"){ const px=8+rint(10); S.pixels+=px; save(); statbar(); sfx("reveal"); toast("⭐ Lucky star! +✦"+px); if(t.remove)t.remove(); }
   else if(act==="merchant"){showMerchant();}
   else if(act==="mbuy"){merchantBuy(+t.dataset.i);}
