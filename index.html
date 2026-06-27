@@ -1598,6 +1598,18 @@ function petDetail(iid){
   const fam=FAM_BY_ID[p.familyId]; const el=famElement(fam);
   const slots=stoneSlots(p); const eqStones=p.stones||[];
   const avail=S.stones.filter(s=>!S.pets.some(pp=>(pp.stones||[]).some(x=>x.id===s.id)));
+  // group identical stones (kind+tier) so every spare is visible & scannable, sorted by type then tier
+  const STONE_TIER_RANK={basic:0,bronze:1,silver:2,gold:3};
+  const stoneGroups={};
+  for(const s of avail){const key=s.kind+"|"+s.tier; (stoneGroups[key]=stoneGroups[key]||{rep:s,count:0}).count++;}
+  const stoneGrpArr=Object.values(stoneGroups).sort((a,b)=>{
+    const ka=STONE_ORDER.indexOf(a.rep.kind), kb=STONE_ORDER.indexOf(b.rep.kind);
+    if(ka!==kb) return ka-kb;
+    return (STONE_TIER_RANK[b.rep.tier]||0)-(STONE_TIER_RANK[a.rep.tier]||0);
+  });
+  const equipBtns=stoneGrpArr.map(g=>{const s=g.rep,i=stoneInfo(s);
+    return `<button class="btn ghost sm" style="margin:3px 3px 0;border-color:${i.color}88;color:${i.color}" data-act="eqstone" data-iid="${p.iid}" data-sid="${s.id}">${i.icon} ${i.tier} ${i.text}${g.count>1?` ×${g.count}`:""}</button>`;
+  }).join("");
   const trainCost=10+p.level*3;
   const path = p.tier<4 ? `Next: ${p.tier===1?'one of '+fam.t2.join(", "):p.tier===2?'one of '+fam.t3.join(", "):fam.t4}` : "Final form! ✦";
   const html=`<div class="overlay" data-dismiss="1"><div class="battle">
@@ -1626,8 +1638,8 @@ function petDetail(iid){
       <div class="ri-name">💎 Stone Slots (${eqStones.length}/${slots})</div>
       ${eqStones.map(s=>{const i=stoneInfo(s);return `<div class="reward"><span style="color:${i.color}">${i.icon} ${i.name} ${i.tier} · ${i.text}</span>
         <button class="btn ghost sm" style="margin-left:auto" data-act="unstone" data-iid="${p.iid}" data-sid="${s.id}">remove</button></div>`;}).join("")||'<div class="muted">No stones equipped.</div>'}
-      ${eqStones.length<slots && avail.length?`<div class="muted" style="margin:8px 0 4px">Equip:</div>`+
-        avail.slice(0,8).map(s=>{const i=stoneInfo(s);return `<button class="btn ghost sm" style="margin:3px 3px 0;border-color:${i.color}88;color:${i.color}" data-act="eqstone" data-iid="${p.iid}" data-sid="${s.id}">${i.icon} ${i.tier} ${i.text}</button>`;}).join(""):""}
+      ${eqStones.length<slots && avail.length?`<div class="muted" style="margin:8px 0 4px">Equip (${avail.length} available):</div><div style="max-height:188px;overflow-y:auto;overflow-x:hidden;padding:2px 2px 0">`+
+        equipBtns+`</div>`:""}
       ${eqStones.length>=slots?'<div class="muted" style="margin-top:6px;font-size:12px">All slots full.</div>':""}
     </div>
     <button class="btn ghost" data-act="closeoverlay" style="margin-top:12px">close</button>
