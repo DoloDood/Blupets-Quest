@@ -1992,7 +1992,7 @@ function startBlitz(iid){
       if(e.flash>0)e.flash-=dt;
       const dx=player.x-e.x, dy=player.y-e.y, d=Math.hypot(dx,dy)||1, ux=dx/d, uy=dy/d;
       if(e.healer){
-        // ---- Mender: hang back from the player, drift to the worst-hurt foe and heal it ----
+        // ---- Mender: hang back from the player, drift to the worst-hurt foe and heal it, lob the odd shot ----
         e.healCd-=dt;
         let worst=null,wf=1; for(const o of enemies){ if(o===e||o.hp<=0)continue; const f=o.hp/o.maxhp; if(f<wf&&f<1){wf=f;worst=o;} }
         if(d<170){ e.x-=ux*e.spd*dt; e.y-=uy*e.spd*dt; }            // keep distance from player
@@ -2000,6 +2000,7 @@ function startBlitz(iid){
           if(wd>40){ e.x+=wx/wd*e.spd*0.6*dt; e.y+=wy/wd*e.spd*0.6*dt; } }
         if(e.healCd<=0 && worst){ const amt=Math.round(worst.maxhp*0.10); worst.hp=Math.min(worst.maxhp,worst.hp+amt);
           burst(worst.x,worst.y,"#7fe084",4); e.healCd=1.4; }
+        e.fireCd-=dt; if(e.fireCd<=0 && d<240){ efire(e); e.fireCd=Math.max(1.1,2.0-wave*0.02); } // strikes between heals
       } else if(e.ranged){
         // ---- Caster: approach to firing range, kite if crowded, then shoot ----
         const want=130;
