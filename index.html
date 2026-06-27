@@ -1863,9 +1863,9 @@ function startBlitz(iid){
     const a=bzEnemyArt(wave,champ);
     const p=edgeSpawn();
     const mult=champ?6.5:1;
-    const hp=Math.round((7+wave*4.6)*R.hpM*mult);
-    const atk=Math.round((4.5+wave*1.25)*R.atkM*(champ?1.5:1));
-    let spd=(40+wave*3)*R.spdM; spd=Math.min(spd, champ?52:112);
+    const hp=Math.round((16 + wave*5 + wave*wave*0.45)*R.hpM*mult);
+    const atk=Math.round((7+wave*2)*R.atkM*(champ?1.5:1));
+    let spd=(52+wave*3.2)*R.spdM; spd=Math.min(spd, champ?60:120);
     const ele=a.ele, pal=ELE_PAL[ele]||["#e0557a","#b14a6a","#7a3050"];
     return {x:p.x,y:p.y, r:(champ?20:9)*R.sizeM, hp, maxhp:hp, atk, spd,
       role:rd.role, ranged:rd.ranged, healer:rd.role==="mender", dodge:R.dodge||0, reduce:R.reduce||0,
@@ -1933,7 +1933,7 @@ function startBlitz(iid){
     // wave spawns
     waveT+=dt; spawnCd-=dt;
     if(wave%5===0 && champDone!==wave && waveT>1.0){ spawnChampion(); champDone=wave; }
-    const spawnEvery=Math.max(0.32,1.4-wave*0.08), perTick=Math.min(5,1+Math.floor(wave/4));
+    const spawnEvery=Math.max(0.28,1.15-wave*0.07), perTick=Math.min(6,1+Math.floor(wave/3));
     if(waveT<BLITZ_WAVE_T && spawnCd<=0){ for(let i=0;i<perTick;i++)spawnEnemy(); spawnCd=spawnEvery; }
     if(waveT>=BLITZ_WAVE_T && (enemies.length===0 || waveT>=BLITZ_WAVE_T+8) && !paused){ offerUpgrade(); }
     // projectiles
