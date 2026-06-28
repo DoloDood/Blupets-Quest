@@ -329,11 +329,14 @@
     background:rgba(255,253,245,.92);backdrop-filter:blur(6px);border-top:3px solid var(--line)}
   .tabs .inner{display:flex;max-width:460px;width:100%}
   .tab{flex:1;border:none;background:none;padding:9px 2px 7px;cursor:pointer;font-family:var(--px);
-    font-size:7px;color:var(--ink2);display:flex;flex-direction:column;align-items:center;gap:4px}
+    font-size:7px;color:var(--ink2);display:flex;flex-direction:column;align-items:center;gap:4px;position:relative}
   .tab .ti{font-size:18px;filter:grayscale(.4)}
   .tab.on{color:var(--blu)}
   .tab.on .ti{filter:none;transform:translateY(-1px)}
   .tab.on:after{content:"";position:absolute;}
+  .tab .badge{position:absolute;top:6px;left:calc(50% + 5px);width:9px;height:9px;border-radius:50%;
+    background:var(--coral);border:2px solid var(--cream);animation:badgepulse 1.6s ease-in-out infinite}
+  @keyframes badgepulse{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
 
   .center{text-align:center}
   .muted{color:var(--ink2);font-weight:600;font-size:13px}
@@ -408,6 +411,30 @@
     z-index:55;pointer-events:none;opacity:.9;animation:impactpop .34s ease-out forwards}
   @keyframes impactpop{0%{transform:translate(-50%,-50%) scale(.3);opacity:.95}
     100%{transform:translate(-50%,-50%) scale(2.4);opacity:0}}
+
+  /* active abilities */
+  .castfx{position:absolute;transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;z-index:60;
+    border:3px solid #fff;width:8px;height:8px;animation:castring .55s ease-out forwards}
+  @keyframes castring{0%{width:8px;height:8px;opacity:.95}
+    100%{width:var(--cs,90px);height:var(--cs,90px);opacity:0}}
+  .castlabel{position:absolute;transform:translate(-50%,-50%);z-index:240;pointer-events:none;font-family:var(--px);
+    font-size:9px;color:#fff;text-shadow:0 0 4px #000,1px 1px 0 #0008;white-space:nowrap;animation:castlabel 1s ease-out forwards}
+  @keyframes castlabel{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}
+    25%{opacity:1;transform:translate(-50%,-170%) scale(1)}100%{opacity:0;transform:translate(-50%,-260%) scale(1)}}
+  .abilrow{display:flex;gap:6px;justify-content:center;margin:8px auto 2px;max-width:336px}
+  .abil{flex:1;min-width:0;position:relative;border:3px solid var(--line);border-radius:12px;background:var(--cream);
+    padding:5px 3px 4px;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:default;
+    box-shadow:2px 2px 0 var(--shadow);overflow:hidden}
+  .abil .fill{position:absolute;left:0;bottom:0;width:100%;height:0;background:#00000018;z-index:0;transition:height .12s linear}
+  .abil>span:not(.fill){position:relative;z-index:1}
+  .abil .aico{font-size:15px;line-height:1.1}
+  .abil .aname{font-family:var(--px);font-size:7px;color:var(--ink);max-width:100%;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .abil.ready{cursor:pointer;box-shadow:0 0 0 2px var(--sun),2px 2px 0 var(--shadow);animation:abilpulse 1.1s ease-in-out infinite}
+  .abil.ready:active{transform:translate(2px,2px);box-shadow:0 0 0 var(--shadow)}
+  .abil.dead{filter:grayscale(1);opacity:.35}
+  @keyframes abilpulse{0%,100%{box-shadow:0 0 0 2px var(--sun),2px 2px 0 var(--shadow)}
+    50%{box-shadow:0 0 0 5px var(--sun),2px 2px 0 var(--shadow)}}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
@@ -529,6 +556,16 @@ const STONE_KINDS={
 };
 const STONE_ORDER=["mighty","sturdy","keen","swift","catalyst","vampiric","verdant","bulwark","fleet"];
 const NEXT_TIER={basic:"bronze",bronze:"silver",silver:"gold"};
+/* ---- active special moves: one per role, flavored by the Blupet's element ----
+   role decides the SHAPE of the move; the unit's element decides its color and
+   which on-hit status it stamps. `cd` is the recharge time in seconds. */
+const ABILITIES={
+  bruiser:   {name:"Crusher",  icon:"💥", cd:10, blurb:"A devastating crit on one foe, with splash to a neighbor."},
+  guardian:  {name:"Aegis",    icon:"🛡️", cd:11, blurb:"Taunts every foe, heals, and shields itself for 3s."},
+  caster:    {name:"Nova",     icon:"✨", cd:12, blurb:"Element blast that hits ALL foes and stamps its status."},
+  skirmisher:{name:"Flurry",   icon:"🌀", cd:9,  blurb:"Dashes through the backline for 3 guaranteed crits, then evades."},
+  mender:    {name:"Lifebloom",icon:"💚", cd:13, blurb:"Big team heal, cleanses debuffs, and shields the party."},
+};
 const CRUSH_DUST={basic:5,bronze:12,silver:25,gold:50};
 const UPGRADE_COST={basic:15,bronze:35,silver:70};
 const CRAFT_COST=25;
@@ -798,6 +835,27 @@ function enemyRole(isBoss){
   if(r<0.32)return "bruiser"; if(r<0.57)return "guardian"; if(r<0.77)return "skirmisher";
   if(r<0.94)return "caster"; return "mender";
 }
+/* enemy evolution tier scales with how deep you are. Weights are [T1,T2,T3,T4]
+   summing to 100. Late zones drop T1/T2 entirely and lean on T3/T4; bosses are
+   read one band higher so they always out-evolve the trash around them. */
+function tierWeights(L){
+  if(L<5)  return [100, 0, 0, 0];
+  if(L<8)  return [ 72,28, 0, 0];
+  if(L<12) return [ 46,46, 8, 0];
+  if(L<16) return [ 24,52,24, 0];
+  if(L<20) return [ 10,48,36, 6];
+  if(L<25) return [  3,36,48,13];
+  if(L<32) return [  0,22,52,26];
+  if(L<40) return [  0,10,46,44];
+  if(L<48) return [  0, 3,36,61];
+  return    [  0, 0,26,74];
+}
+function enemyTier(zone,isBoss){
+  const L=(zone.lvl||1)+(isBoss?8:0);
+  const w=tierWeights(L); let x=Math.random()*100;
+  for(let i=0;i<4;i++){ if((x-=w[i])<=0) return i+1; }
+  return 4;
+}
 function makeEnemy(zone,waveIdx,isBoss,swarm){
   const famId=pick(zone.pool); const fam=FAM_BY_ID[famId];
   const baseLvl=zone.lvl + waveIdx + (isBoss?2:0);
@@ -807,18 +865,23 @@ function makeEnemy(zone,waveIdx,isBoss,swarm){
     e.hp=Math.round(e.hp*0.5); e.maxhp=e.hp; e.atk=Math.round(e.atk*0.72); e.spdM=(e.spdM||1)*1.18;
     return e;
   }
-  const tier=isBoss?(zone.lvl>=24?3:zone.lvl>=8?2:1):(zone.lvl>=14?2:1);
+  const tier=enemyTier(zone,isBoss);
   const rk=enemyRole(isBoss);
   let e;
   if(tier===1){
     const cName=pick(fam.pair);
     e=enemyObj("Wild "+cName+" Blupet",famElementByColor(cName),baseLvl,tier,artT1(cName,72),isBoss,null,0,rk);
   } else {
-    const formIdx = tier===2?rint(fam.t2.length):rint(fam.t3.length);
-    const name = tier===2?fam.t2[formIdx]:fam.t3[formIdx];
+    let formIdx, name;
+    if(tier===2){ formIdx=rint(fam.t2.length); name=fam.t2[formIdx]; }
+    else if(tier===3){ formIdx=rint(fam.t3.length); name=fam.t3[formIdx]; }
+    else { formIdx=0; name=fam.t4; }
     markDex(famId,tier,formIdx);
     e=enemyObj((isBoss?"Wild ":"")+name,famElement(fam),baseLvl,tier,artForm(fam,tier,formIdx,rint(64),72),isBoss,famId,formIdx,rk);
   }
+  // progressive bite: deeper zones/stages hit harder even within a tier
+  const diff=1+Math.max(0,(zone.lvl-10))*0.012;
+  if(diff>1){ e.hp=Math.round(e.hp*diff); e.maxhp=e.hp; e.atk=Math.round(e.atk*diff); }
   if(zone.easy){e.hp=Math.round(e.hp*0.74);e.maxhp=e.hp;e.atk=Math.round(e.atk*0.64);}
   return e;
 }
@@ -1255,7 +1318,7 @@ function claimAllBonus(){
   S.quests.bonusClaimed=true;
   S.pixels+=DAILY_BONUS.px; S.dust+=DAILY_BONUS.dust;
   const k=pick(STONE_ORDER); S.stones.push({id:"s"+Date.now()+rint(99999),kind:k,tier:"basic"});
-  sfx("victory"); save(); statbar(); toast(`Daily bonus! ✦${DAILY_BONUS.px} · 💠${DAILY_BONUS.dust} · a Power Stone`);
+  sfx("victory"); save(); statbar(); renderTabs(); toast(`Daily bonus! ✦${DAILY_BONUS.px} · 💠${DAILY_BONUS.dust} · a Power Stone`);
   showQuests();
 }
 function questClaimable(){ ensureQuests(); return (S.quests.list||[]).filter(q=>!q.claimed && q.prog>=q.target).length + (dailyBonusReady()?1:0); }
@@ -1266,7 +1329,7 @@ function claimQuest(i){
   if(rw.px){ S.pixels+=rw.px; got.push(`✦ ${rw.px} Pixels`); }
   if(rw.dust){ S.dust+=rw.dust; got.push(`💠 ${rw.dust} Stardust`); }
   if(rw.bits){ for(let k=0;k<rw.bits;k++){const c=pick(BASE).name; S.bits[c]=(S.bits[c]||0)+1;} got.push(`🎨 ${rw.bits} Bits`); }
-  sfx("level"); save(); statbar(); toast("Quest complete! "+got.join(" · "));
+  sfx("level"); save(); statbar(); renderTabs(); toast("Quest complete! "+got.join(" · "));
   showQuests();
 }
 function showQuests(){
@@ -2182,6 +2245,19 @@ function playExpedition(zone){
   const stage=$("stage");
   allies.forEach(u=>stage.appendChild(u.el));
   const _sb=$("skipBtn"); if(_sb)_sb.onclick=()=>{fast=true;};
+  // ---- active ability bar (one charged move per party member) ----
+  const abilRow=document.createElement("div"); abilRow.className="abilrow"; abilRow.id="abilRow";
+  const _foot=ov.querySelector(".arena-foot"); if(_foot)_foot.parentNode.insertBefore(abilRow,_foot);
+  allies.forEach(u=>{
+    const A=ABILITIES[u.role]||ABILITIES.bruiser;
+    u.abilMax=A.cd; u.abilCd=A.cd*0.6;                       // start ~40% charged
+    const ec=ELE_PAL[u.ele]||["#ffd24a","#ff7a3c","#d83c18"];
+    const b=document.createElement("button"); b.className="abil"; b.style.borderColor=ec[2];
+    b.title=A.name+" — "+A.blurb;
+    b.innerHTML=`<span class="fill"></span><span class="aico">${A.icon}</span><span class="aname">${A.name}</span>`;
+    b.onclick=()=>castAbility(u);
+    u.abilBtn=b; abilRow.appendChild(b);
+  });
 
   function alive(side){return units.filter(u=>u.side===side&&!u.dead);}
   function clampPos(u){u.x=Math.max(u.r,Math.min(STAGE_W-u.r,u.x)); u.y=Math.max(u.r,Math.min(STAGE_H-u.r,u.y));}
@@ -2256,12 +2332,13 @@ function playExpedition(zone){
   function dealDamage(u,t,aoe){
     if(t.dead)return;
     const Mt=statusMods(t), Mu=statusMods(u);
-    if(!aoe && t.dodge && chance(t.dodge)){ if(!fast)popText(t,"dodge","#7a8aa8"); return; }
+    if(!aoe && (t.dodge||t._evadeT>0)){ const dodge=(t.dodge||0)+((t._evadeT>0)?0.30:0); if(dodge>0&&chance(dodge)){ if(!fast)popText(t,"dodge","#7a8aa8"); return; } }
     const em=eleMult(u.ele,t.ele);
     const crit=!aoe && chance(0.10+(u.critBonus||0)+u.tier*0.01);
     let dmg=u.atk*Mu.atkMul*em*(0.85+Math.random()*0.3)*(crit?1.7:1)*(1+(u.dmgAmp||0));
     dmg*=Mt.dmgTaken;
-    const reduce=Math.max(0,(t.reduce||0)-Mt.sunder);
+    const shieldRed=(t._shieldT>0)?0.45:0;
+    const reduce=Math.max(0,(t.reduce||0)+shieldRed-Mt.sunder);
     dmg=dmg*(1-reduce)-t.tier*1.5;
     if(aoe)dmg*=aoe;
     dmg=Math.max(1,Math.round(dmg));
@@ -2291,10 +2368,88 @@ function playExpedition(zone){
     t.hp=Math.min(t.maxhp,t.hp+amt); u.facing=t.x>=u.x?1:-1;
     if(!fast){ sfx("level"); popText(t,"+"+amt,"#2e9c5e"); spawnImpact(t,"#56cf8c"); }
   }
+  /* ---- active abilities ---- */
+  function abilDamage(u,t,mult,opts){
+    opts=opts||{};
+    if(!t||t.dead)return;
+    const Mt=statusMods(t), em=eleMult(u.ele,t.ele);
+    const crit=opts.crit||chance(0.10+(u.critBonus||0)+u.tier*0.01);
+    let dmg=u.atk*mult*em*(0.9+Math.random()*0.2)*(crit?1.7:1)*(1+(u.dmgAmp||0));
+    dmg*=Mt.dmgTaken;
+    const reduce=Math.max(0,(t.reduce||0)-Mt.sunder);
+    dmg=Math.max(1,Math.round(dmg*(1-reduce)-t.tier*1.5));
+    t.hp-=dmg;
+    const fx=ELEMENT_FX[u.ele];                 // the element stamps its signature, hard
+    if(fx&&fx.st){ const sp=1.5+(u.statusPow||0); applyStatus(t,fx.st,u.atk*sp,sp); }
+    if(u.lifesteal&&u.hp>0&&u.hp<u.maxhp){const hl=Math.max(1,Math.round(dmg*u.lifesteal));u.hp=Math.min(u.maxhp,u.hp+hl);}
+    if(!fast){ sfx("hit");
+      popText(t,dmg+(crit?"!":""),crit?"#ffd23d":em>1?"#9fe3ff":"#fff",crit||opts.big);
+      if(t.el){t.el.classList.add("uhurt"); setTimeout(()=>{if(t.el)t.el.classList.remove("uhurt");},170);}
+      spawnEleBurst(t,u.ele,!opts.big); }
+    if(t.hp<=0&&!t.dead)killUnit(t);
+  }
+  function castFX(u,color,size,life){
+    if(fast||!stage)return;
+    const d=document.createElement("div"); d.className="castfx";
+    d.style.borderColor=color; d.style.left=u.x+"px"; d.style.top=u.y+"px";
+    if(size)d.style.setProperty("--cs",size+"px");
+    stage.appendChild(d); setTimeout(()=>{if(d.parentNode)d.remove();},life||550);
+  }
+  function castLabel(u,txt,color){
+    if(fast||!stage)return;
+    const d=document.createElement("div"); d.className="castlabel"; d.textContent=txt;
+    if(color)d.style.color=color; d.style.left=u.x+"px"; d.style.top=u.y+"px";
+    stage.appendChild(d); setTimeout(()=>{if(d.parentNode)d.remove();},1000);
+  }
+  function backScore(f){ let s=(f.role==="caster"||f.role==="mender")?50:0; return s+(1-f.hp/f.maxhp)*20; }
+  function castAbility(u){
+    if(!u||u.dead||ended||(u.abilCd||0)>0)return;
+    u.abilCd=u.abilMax;
+    const A=ABILITIES[u.role]||ABILITIES.bruiser;
+    const ec=ELE_PAL[u.ele]||["#ffd24a","#ff7a3c","#d83c18"];
+    if(!fast){ sfx("charge"); castFX(u,ec[0],110,520); castLabel(u,A.name,ec[1]); }
+    const F=alive("foe"), Aly=alive("ally");
+    if(u.role==="bruiser"){
+      let t=(u.target&&!u.target.dead)?u.target:(F.length?nearest(u,F):null);
+      if(t){ u.lunge=0.32; u.facing=t.x>=u.x?1:-1; abilDamage(u,t,3.4,{crit:true,big:true}); if(!fast)spawnImpact(t,ec[1]);
+        const others=F.filter(x=>x!==t&&!x.dead); const n=others.length?nearest(t,others):null; if(n)abilDamage(u,n,1.1,{}); }
+    } else if(u.role==="guardian"){
+      F.forEach(f=>{ f.target=u; f._tt=3.0; });           // pull all aggro
+      u._shieldT=3.0; const heal=Math.round(u.maxhp*0.18); u.hp=Math.min(u.maxhp,u.hp+heal);
+      if(!fast){ popText(u,"+"+heal,"#3a8bf0"); castFX(u,"#cfe3ff",92,640); }
+    } else if(u.role==="caster"){
+      F.forEach(f=>abilDamage(u,f,1.55,{big:true}));        // hit everything
+      if(!fast)castFX(u,ec[0],160,640);
+    } else if(u.role==="skirmisher"){
+      const order=F.slice().sort((a,b)=>backScore(b)-backScore(a)).slice(0,3);
+      order.forEach(t=>{ if(t&&!t.dead){ u.x=Math.max(u.r,Math.min(STAGE_W-u.r,t.x-18)); u.y=t.y; u.lunge=0.22; u.facing=1;
+        abilDamage(u,t,1.35,{crit:true}); if(!fast)spawnImpact(t,ec[1]); } });
+      u._hasteT=3.0; u._evadeT=3.0;                         // then become slippery
+    } else if(u.role==="mender"){
+      Aly.forEach(a=>{ const heal=Math.round((u.atk*2.4 + a.maxhp*0.12)*(1+(u.healPct||0)));
+        a.hp=Math.min(a.maxhp,a.hp+heal); a.status={}; a._shieldT=Math.max(a._shieldT||0,2.5);
+        if(!fast){ popText(a,"+"+heal,"#2e9c5e"); spawnImpact(a,"#56cf8c"); } });
+      if(!fast)castFX(u,"#9ef7c0",160,640);
+    }
+  }
+  function updateAbilBar(){
+    for(const u of allies){ const b=u.abilBtn; if(!b)continue;
+      const f=b.querySelector(".fill");
+      if(u.dead){ b.classList.add("dead"); b.classList.remove("ready"); if(f)f.style.height="0%"; continue; }
+      const pct=Math.max(0,Math.min(1,1-(u.abilCd||0)/u.abilMax));
+      if(f){ f.style.height=(pct*100)+"%"; f.style.background=pct>=1?((ELE_PAL[u.ele]||["#ffd24a"])[0]+"dd"):"#00000018"; }
+      b.classList.toggle("ready",pct>=1);
+    }
+  }
   function step(dt){
     battleT+=dt;
     if(phase==="fight"){
       const A=alive("ally"), F=alive("foe");
+      // ability charge + temporary buff timers
+      for(const u of units){ if(u.dead)continue;
+        if(u._shieldT>0)u._shieldT-=dt; if(u._hasteT>0)u._hasteT-=dt; if(u._evadeT>0)u._evadeT-=dt; }
+      for(const u of allies){ if(!u.dead && u.abilCd>0) u.abilCd-=dt; }
+      if(fast){ for(const u of allies){ if(!u.dead && (u.abilCd||0)<=0) castAbility(u); } }
       for(const u of units){ if(u.dead)continue;
         const dot=statusTick(u,dt);
         if(dot>0){ u.hp-=dot; u._dotAcc=(u._dotAcc||0)+dot; u._dotT=(u._dotT||0)+dt;
@@ -2304,7 +2459,7 @@ function playExpedition(zone){
         if(u.cd>0)u.cd-=dt; if(u.lunge>0)u.lunge-=dt;
         if(M.frozen) continue; // can't act while frozen
         const foes = u.side==="ally"?F:A, mates = u.side==="ally"?A:F;
-        const spd = u.spdpx*M.slowMul;
+        const spd = u.spdpx*M.slowMul*((u._hasteT>0)?1.5:1);
         // ---- Mender: hang back, heal the worst-wounded, flee danger ----
         if(u.healer){
           let wounded=null,worst=0.80;
@@ -2374,6 +2529,7 @@ function playExpedition(zone){
       if(u.pip){ const k=dominantStatus(u); if(k!==u._pipK){ u._pipK=k; u.pip.innerHTML=k?(STATUS_SVG[k]||""):""; u.pip.style.opacity=k?1:0; } }
       if(u.sprite){ u.sprite.style.filter = (u.status&&u.status.frozen)?"brightness(1.3) saturate(0.4) drop-shadow(0 0 3px #bfe6ff)":(u.status&&u.status.burn?"drop-shadow(0 0 4px #ff7a4a)":""); }
     }
+    updateAbilBar();
   }
   function end(win){ if(ended)return; ended=true; if(raf)cancelAnimationFrame(raf); draw();
     bumpStat("expeditions"); if(win){ bumpStat("mobs",foeKills); if(sub.isFinal){bumpStat("bosses"); logActivity("boss", zone.name+" boss");} }
@@ -2431,9 +2587,13 @@ function showResult(win,zone,run,sub,ov){
 
 /* =================== ROUTER =================== */
 const TABS=[["camp","🏕️","Camp"],["cook","🍳","Cook"],["quest","🗺️","Quest"],["pets","🐾","Team"],["dex","📖","Dex"]];
+function dailyNudge(){ return dailyReady() || questClaimable()>0; } // gift waiting or quests/bonus to claim (all on Camp)
 function renderTabs(){
-  $("tabs").innerHTML=TABS.map(([k,ic,lb])=>
-    `<button class="tab ${S.tab===k?'on':''}" data-act="tab" data-tab="${k}"><span class="ti">${ic}</span>${lb}</button>`).join("");
+  const nudge=dailyNudge();
+  $("tabs").innerHTML=TABS.map(([k,ic,lb])=>{
+    const badge=(k==="camp" && nudge)?'<span class="badge"></span>':'';
+    return `<button class="tab ${S.tab===k?'on':''}" data-act="tab" data-tab="${k}">${badge}<span class="ti">${ic}</span>${lb}</button>`;
+  }).join("");
 }
 function render(){
   regenEnergy(); statbar(); renderTabs();
@@ -3077,7 +3237,12 @@ function syncLeaderboard(){ if(isGuest||!sbc||!authUser||!S.username)return;
   try{ sbc.from("lb_daily").upsert({...base, period:lb.day, endless_score:esD}).then(()=>{},()=>{}); }catch(e){}
   try{ sbc.from("lb_weekly").upsert({...base, period:lb.week, endless_score:esW}).then(()=>{},()=>{}); }catch(e){}
 }
-function enterGame(){ if(!isGuest)rolloverCheck(); regenEnergy(); statbar(); renderTabs(); if(S.cooking)startCookTicker(); if(S.started)render(); else startFlow(); }
+function enterGame(){ if(!isGuest)rolloverCheck(); regenEnergy(); statbar(); renderTabs(); if(S.cooking)startCookTicker(); if(S.started)render(); else startFlow(); setTimeout(maybeReturnToast,800); }
+function maybeReturnToast(){
+  if(!S.started)return;
+  if(dailyReady()) toast("🎁 Your daily gift is ready!");
+  else if(questClaimable()>0) toast("📋 You've got rewards to claim!");
+}
 function playAsGuest(){ isGuest=true; authUser=null; load(); enterGame(); }
 async function enterLoggedIn(){
   isGuest=false;
