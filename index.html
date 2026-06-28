@@ -404,7 +404,7 @@
   .ubar{width:30px;max-width:90%;height:5px;background:#00000022;border:1px solid #00000044;border-radius:3px;overflow:hidden;margin-bottom:2px}
   .ubar i{display:block;height:100%;width:100%}
   .unit.ally .ubar i{background:#56cf8c}.unit.foe .ubar i{background:#ff7a6b}
-  .arena-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px}
+  .arena-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;flex-wrap:wrap}
   #waveTag{margin-bottom:2px}
   .proj{position:absolute;transform:translate(-50%,-50%);transition:transform .22s linear;z-index:220;pointer-events:none;image-rendering:pixelated;filter:drop-shadow(0 0 3px #0004)}
   .impact{position:absolute;width:14px;height:14px;border-radius:50%;transform:translate(-50%,-50%) scale(.4);
@@ -421,7 +421,7 @@
     font-size:9px;color:#fff;text-shadow:0 0 4px #000,1px 1px 0 #0008;white-space:nowrap;animation:castlabel 1s ease-out forwards}
   @keyframes castlabel{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}
     25%{opacity:1;transform:translate(-50%,-170%) scale(1)}100%{opacity:0;transform:translate(-50%,-260%) scale(1)}}
-  .abilrow{display:flex;gap:6px;justify-content:center;margin:8px auto 2px;max-width:336px}
+  .abilrow{display:flex;gap:6px;justify-content:center;margin:8px auto 10px;max-width:336px}
   .abil{flex:1;min-width:0;position:relative;border:3px solid var(--line);border-radius:12px;background:var(--cream);
     padding:5px 3px 4px;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:default;
     box-shadow:2px 2px 0 var(--shadow);overflow:hidden}
@@ -434,7 +434,17 @@
   .abil.ready:active{transform:translate(2px,2px);box-shadow:0 0 0 var(--shadow)}
   .abil.dead{filter:grayscale(1);opacity:.35}
   @keyframes abilpulse{0%,100%{box-shadow:0 0 0 2px var(--sun),2px 2px 0 var(--shadow)}
-    50%{box-shadow:0 0 0 5px var(--sun),2px 2px 0 var(--shadow)}}
+    50%{box-shadow:0 0 0 3px var(--sun),2px 2px 0 var(--shadow)}}
+  /* arena footer: zone label on the left, Auto toggle + skip on the right */
+  .foot-right{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0}
+  .autotog{display:inline-flex;align-items:center;gap:5px;font-family:var(--px);font-size:9px;color:var(--ink);
+    border:3px solid var(--line);border-radius:10px;background:var(--cream);padding:4px 8px;cursor:pointer;
+    box-shadow:2px 2px 0 var(--shadow);white-space:nowrap}
+  .autotog .cbx{width:12px;height:12px;border:2px solid var(--line);border-radius:3px;background:#fff;position:relative;flex-shrink:0}
+  .autotog.on .cbx{background:#56cf8c}
+  .autotog.on .cbx::after{content:"";position:absolute;left:3px;top:0;width:3px;height:6px;
+    border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+  .autotog:active{transform:translate(2px,2px);box-shadow:0 0 0 var(--shadow)}
 </style>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
@@ -734,7 +744,7 @@ let sbc=null, authUser=null, isGuest=false, cloudTimer=null, lbStat="mobs", lbVi
 function freshState(){
   return {ver:1, started:false, pixels:60, energy:16, maxEnergy:16, lastTs:Date.now(),
     bits:{Red:6,Yellow:4,Green:6,Cyan:3,Blue:6,Purple:3,Black:2,White:2},
-    pets:[], party:[], stones:[], dust:0, dex:{}, progress:{}, tab:"camp", music:true,
+    pets:[], party:[], stones:[], dust:20, dex:{}, progress:{}, tab:"camp", music:true,
     cookTab:"cook", cookRole:"any", cookPremium:false, tradeFrom:"Red", tradeTo:"Blue",
     prep:{snack:false,tonic:false,focus:false}, decorOwned:{}, decor:{}, decorPos:{},
     stats:{mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0}, username:null,
@@ -938,6 +948,7 @@ function rollStone(zone){
 
 /* =================== COOKING =================== */
 const COOK_MS=60*1000;
+const COOK_SKIP_COST=10;   // Stardust to finish the current cook instantly
 function fmtMMSS(ms){ const t=Math.max(0,Math.ceil(ms/1000)); return Math.floor(t/60)+":"+String(t%60).padStart(2,"0"); }
 function cookRemainingMs(){ return S.cooking ? Math.max(0, S.cooking.dur-(Date.now()-S.cooking.start)) : 0; }
 function cookReady(){ return !!S.cooking && cookRemainingMs()<=0; }
@@ -965,6 +976,15 @@ function collectCook(){
   logActivity("cook", vibeName(p)+" "+c.color+" Blupet");
   questProgress("cook");
   save(); showCookReveal(p); render();
+}
+function skipCook(){
+  if(!S.cooking){ return; }
+  if(cookReady()){ collectCook(); return; }
+  if(S.dust<COOK_SKIP_COST){ toast("Need 💠"+COOK_SKIP_COST+" Stardust to skip the wait"); return; }
+  S.dust-=COOK_SKIP_COST;
+  S.cooking.start=Date.now()-S.cooking.dur-100;   // force the timer to completion
+  cookReadyFlag=true; sfx("reveal");
+  collectCook();                                   // reveal the friend right away
 }
 let cookTick=null, cookReadyFlag=false;
 function startCookTicker(){
@@ -1552,6 +1572,8 @@ function vCookMain(){
       <div class="pot-big cooking"><div class="pot-lid"></div><div class="pot-body"></div></div>
       <div class="ri-name" id="cookTimerCook" style="margin:10px 0">${ready?'Ready to collect!':'Cooking… '+fmtMMSS(cookRemainingMs())+' left'}</div>
       <button class="btn ${ready?'mint':'ghost'}" data-act="cookcollect" ${ready?'':'disabled'}>${ready?'Collect your Blupet! ✨':'Please wait…'}</button>
+      ${ready?'':`<button class="btn sm" data-act="cookskip" ${S.dust>=COOK_SKIP_COST?'':'disabled'} style="margin-top:8px">⚡ Skip the wait — 💠${COOK_SKIP_COST}</button>
+      ${S.dust>=COOK_SKIP_COST?'':`<p class="muted" style="font-size:11px;margin:6px 0 0">Earn 💠 Stardust from expeditions to skip cooks.</p>`}`}
     </div>
     <div id="cookResult"></div>`;
   }
@@ -2233,14 +2255,17 @@ function playExpedition(zone){
     S.prep={snack:false,tonic:false,focus:false}; save();
   }
   let units=allies.slice();
-  let waveIdx=0, phase="fight", phaseT=0, battleT=0, ended=false, fast=false, raf=null;
+  let waveIdx=0, phase="fight", phaseT=0, battleT=0, ended=false, fast=false, raf=null, autoOn=!!S.autoAbility;
 
   const g=zoneGround(zone.el);
   const ov=h(`<div class="overlay" id="arenaOv"><div class="arena-wrap">
     <div class="wave-tag" id="waveTag"></div>
     <div class="stage" id="stage" style="background:linear-gradient(180deg,${g[0]},${g[1]})"></div>
     <div class="arena-foot"><span class="muted" id="arenaInfo">${zone.emoji} ${zone.name} · Stage ${sub.si+1}/${zone.stages}${sub.isFinal?' 👑':''}</span>
-      ${canSkip?'<button class="btn ghost sm" id="skipBtn">skip ▶▶</button>':'<span class="muted" style="font-size:11px">▶ watch to clear</span>'}</div></div></div>`);
+      <div class="foot-right">
+        <button class="autotog" id="autoTog" title="Auto-cast special moves when charged"><span class="cbx"></span>Auto</button>
+        ${canSkip?'<button class="btn ghost sm" id="skipBtn">skip ▶▶</button>':'<span class="muted" style="font-size:11px">▶ watch</span>'}
+      </div></div></div></div>`);
   document.body.appendChild(ov);
   const stage=$("stage");
   allies.forEach(u=>stage.appendChild(u.el));
@@ -2258,6 +2283,9 @@ function playExpedition(zone){
     b.onclick=()=>castAbility(u);
     u.abilBtn=b; abilRow.appendChild(b);
   });
+  const _auto=$("autoTog");
+  if(_auto){ if(autoOn)_auto.classList.add("on");
+    _auto.onclick=()=>{ autoOn=!autoOn; _auto.classList.toggle("on",autoOn); S.autoAbility=autoOn; save(); }; }
 
   function alive(side){return units.filter(u=>u.side===side&&!u.dead);}
   function clampPos(u){u.x=Math.max(u.r,Math.min(STAGE_W-u.r,u.x)); u.y=Math.max(u.r,Math.min(STAGE_H-u.r,u.y));}
@@ -2449,7 +2477,7 @@ function playExpedition(zone){
       for(const u of units){ if(u.dead)continue;
         if(u._shieldT>0)u._shieldT-=dt; if(u._hasteT>0)u._hasteT-=dt; if(u._evadeT>0)u._evadeT-=dt; }
       for(const u of allies){ if(!u.dead && u.abilCd>0) u.abilCd-=dt; }
-      if(fast){ for(const u of allies){ if(!u.dead && (u.abilCd||0)<=0) castAbility(u); } }
+      if(fast||autoOn){ for(const u of allies){ if(!u.dead && (u.abilCd||0)<=0) castAbility(u); } }
       for(const u of units){ if(u.dead)continue;
         const dot=statusTick(u,dt);
         if(dot>0){ u.hp-=dot; u._dotAcc=(u._dotAcc||0)+dot; u._dotT=(u._dotT||0)+dt;
@@ -2629,6 +2657,7 @@ document.addEventListener("click",e=>{
   else if(act==="brew"){brew(t.dataset.kind);}
   else if(act==="cook"){startCook(S.cookSel);}
   else if(act==="cookcollect"){collectCook();}
+  else if(act==="cookskip"){skipCook();}
   else if(act==="zone"){const z=ZONES.find(z=>z.id==t.dataset.z);if(z)playExpedition(z);}
   else if(act==="petdetail"){petDetail(t.dataset.iid);}
   else if(act==="pet"){petPet(t.dataset.iid);}
