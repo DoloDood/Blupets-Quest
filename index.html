@@ -813,15 +813,15 @@ function regenEnergy(){
 
 /* =================== ZONES =================== */
 const ZONES=[
- {id:0,name:"Sprout Meadow",el:"Growth",emoji:"🌱",lvl:1,pool:[2,25,9],stages:3,easy:true},
- {id:1,name:"Ember Hollows",el:"Heat",emoji:"🔥",lvl:3,pool:[0,8,13],stages:4},
- {id:2,name:"Tidepool Cove",el:"Aqua",emoji:"🌊",lvl:5,pool:[3,10,21],stages:4,horde:true},
- {id:3,name:"Sunny Dunes",el:"Solar",emoji:"☀️",lvl:8,pool:[1,20,19],stages:5},
- {id:4,name:"Frostshard Pass",el:"Frost",emoji:"❄️",lvl:12,pool:[4,26,32],stages:5},
- {id:5,name:"Whisper Thicket",el:"Shadow",emoji:"🌑",lvl:16,pool:[6,24,28],stages:5,horde:true},
- {id:6,name:"Arcane Archives",el:"Arcane",emoji:"🔮",lvl:20,pool:[5,11,33],stages:6},
- {id:7,name:"Cloudtop Sanctum",el:"Pale",emoji:"☁️",lvl:25,pool:[7,34,29],stages:6},
- {id:8,name:"Aurora Spires",el:"Arcane",emoji:"🌌",lvl:32,pool:[27,30,31],stages:6,horde:true},
+ {id:0,name:"Sprout Meadow",el:"Growth",emoji:"🌱",lvl:4,pool:[2,25,9],stages:3,easy:true},
+ {id:1,name:"Ember Hollows",el:"Heat",emoji:"🔥",lvl:8,pool:[0,8,13],stages:4},
+ {id:2,name:"Tidepool Cove",el:"Aqua",emoji:"🌊",lvl:12,pool:[3,10,21],stages:4,horde:true},
+ {id:3,name:"Sunny Dunes",el:"Solar",emoji:"☀️",lvl:16,pool:[1,20,19],stages:5},
+ {id:4,name:"Frostshard Pass",el:"Frost",emoji:"❄️",lvl:20,pool:[4,26,32],stages:5},
+ {id:5,name:"Whisper Thicket",el:"Shadow",emoji:"🌑",lvl:24,pool:[6,24,28],stages:5,horde:true},
+ {id:6,name:"Arcane Archives",el:"Arcane",emoji:"🔮",lvl:28,pool:[5,11,33],stages:6},
+ {id:7,name:"Cloudtop Sanctum",el:"Pale",emoji:"☁️",lvl:32,pool:[7,34,29],stages:6},
+ {id:8,name:"Aurora Spires",el:"Arcane",emoji:"🌌",lvl:36,pool:[27,30,31],stages:6,horde:true},
  {id:9,name:"Heart of the Isle",el:"Heat",emoji:"⭐",lvl:40,pool:[12,18,35],stages:7},
 ];
 function zoneProgress(z){return (S.progress&&S.progress[z.id])||0;}
@@ -835,7 +835,7 @@ function subInfo(zone){
   const si = replay ? zone.stages-1 : prog;
   const isFinal = (si===zone.stages-1);
   const horde = !!zone.horde && isFinal;
-  return {si, isFinal, replay, horde, lvl:zone.lvl + Math.round(si*1.5), waves:horde?4:(isFinal?3:2)};
+  return {si, isFinal, replay, horde, lvl:zone.lvl + Math.round(si*0.8), waves:horde?4:(isFinal?3:2)};
 }
 
 /* build enemies for a zone wave */
@@ -860,39 +860,42 @@ function tierWeights(L){
   if(L<48) return [  0, 3,36,61];
   return    [  0, 0,26,74];
 }
-function enemyTier(zone,isBoss){
-  const L=(zone.lvl||1)+(isBoss?8:0);
-  const w=tierWeights(L); let x=Math.random()*100;
+function enemyTier(L,isBoss){
+  const w=tierWeights(Math.round(L)+(isBoss?4:0)); let x=Math.random()*100;
   for(let i=0;i<4;i++){ if((x-=w[i])<=0) return i+1; }
   return 4;
 }
-function makeEnemy(zone,waveIdx,isBoss,swarm){
+const SWARM_LVL_MULT=0.75;   // crowds of >3 spawn ~25% under the zone level
+const BOSS_LVL_BONUS=3;      // bosses run a little hotter than the zone
+/* one enemy. Its LEVEL is centered on the zone level (bosses higher, swarms lower,
+   boss-escorts a touch lower), and its evolution TIER is rolled from that level —
+   so deep zones naturally field evolved forms and shallow zones don't. */
+function makeEnemy(zone,waveIdx,isBoss,swarm,escort){
   const famId=pick(zone.pool); const fam=FAM_BY_ID[famId];
-  const baseLvl=zone.lvl + waveIdx + (isBoss?2:0);
-  if(swarm){
-    const cName=pick(fam.pair);
-    const e=enemyObj("Swarmling",famElementByColor(cName),Math.max(1,zone.lvl-2)+waveIdx,1,artT1(cName,64),false,null,0,chance(0.6)?"skirmisher":"bruiser");
-    e.hp=Math.round(e.hp*0.5); e.maxhp=e.hp; e.atk=Math.round(e.atk*0.72); e.spdM=(e.spdM||1)*1.18;
-    return e;
-  }
-  const tier=enemyTier(zone,isBoss);
+  let L=zone.lvl;
+  if(isBoss)      L += BOSS_LVL_BONUS + rint(3);     // +3..+5
+  else if(swarm)  L  = Math.round(L*SWARM_LVL_MULT); // ~-25%
+  else if(escort) L -= 1 + rint(3);                  // boss escorts -1..-3
+  else            L += rint(5) - 2;                  // regulars: small spread, some lower
+  L=Math.max(1,L);
+  const tier=enemyTier(L,isBoss);
   const rk=enemyRole(isBoss);
+  const sz=swarm?64:72;
   let e;
   if(tier===1){
     const cName=pick(fam.pair);
-    e=enemyObj("Wild "+cName+" Blupet",famElementByColor(cName),baseLvl,tier,artT1(cName,72),isBoss,null,0,rk);
+    e=enemyObj((isBoss?"Wild ":"Wild ")+cName+" Blupet",famElementByColor(cName),L,1,artT1(cName,sz),isBoss,null,0,rk);
   } else {
     let formIdx, name;
     if(tier===2){ formIdx=rint(fam.t2.length); name=fam.t2[formIdx]; }
     else if(tier===3){ formIdx=rint(fam.t3.length); name=fam.t3[formIdx]; }
     else { formIdx=0; name=fam.t4; }
     markDex(famId,tier,formIdx);
-    e=enemyObj((isBoss?"Wild ":"")+name,famElement(fam),baseLvl,tier,artForm(fam,tier,formIdx,rint(64),72),isBoss,famId,formIdx,rk);
+    e=enemyObj((isBoss?"Wild ":"")+name,famElement(fam),L,tier,artForm(fam,tier,formIdx,rint(64),sz),isBoss,famId,formIdx,rk);
   }
-  // progressive bite: deeper zones/stages hit harder even within a tier
-  const diff=1+Math.max(0,(zone.lvl-10))*0.012;
-  if(diff>1){ e.hp=Math.round(e.hp*diff); e.maxhp=e.hp; e.atk=Math.round(e.atk*diff); }
-  if(zone.easy){e.hp=Math.round(e.hp*0.74);e.maxhp=e.hp;e.atk=Math.round(e.atk*0.64);}
+  // swarm members read as a swarm: a touch frailer and faster, not a wall of bricks
+  if(swarm){ e.hp=Math.round(e.hp*0.9); e.maxhp=e.hp; e.spdM=(e.spdM||1)*1.12; }
+  if(zone.easy){ e.hp=Math.round(e.hp*0.74); e.maxhp=e.hp; e.atk=Math.round(e.atk*0.64); }
   return e;
 }
 function famElementByColor(cName){const ci=BASE.findIndex(b=>b.name===cName);return ELEMENTS[ci];}
@@ -2292,22 +2295,25 @@ function playExpedition(zone){
   function spawnWave(){
     units=units.filter(u=>{ if(u.side==="foe"&&u.dead){u.el.remove();return false;} return true; });
     const lastWave=(waveIdx===sub.waves-1);
-    let count, bossWave=false, swarm=false;
+    let count, bossWave=false;
     if(sub.horde){
-      swarm=true; count=lastWave?(6+rint(3)):(5+rint(2));
+      if(lastWave){ bossWave=true; count=1+(5+rint(2)); }   // a champion leading the swarm
+      else count = 5+rint(2);                                // big swarm waves
     } else if(lastWave && sub.isFinal){
-      bossWave=true; count=1+(zone.easy?0:(1+rint(2)));   // boss + 1-2 escorts
+      bossWave=true; count=1+(zone.easy?0:(1+rint(2)));      // boss + 1-2 escorts
     } else {
-      const base = zone.easy?2 : (zone.lvl<6?2 : zone.lvl<16?3 : 4);
-      count = base + rint(2);                              // often even or slightly outnumbering
+      const base = zone.easy?2 : (zone.lvl<8?2 : zone.lvl<20?3 : 4);
+      count = base + rint(2);
     }
+    const swarm = count>3;                                   // >3 on the field => lower level
     for(let i=0;i<count;i++){
       const boss=bossWave&&i===0;
-      const u=makeUnit(makeEnemy(run,waveIdx,boss,swarm&&!boss),"foe",i,count);
+      const escort=bossWave&&!boss;
+      const u=makeUnit(makeEnemy(run,waveIdx,boss,swarm&&!boss,escort),"foe",i,count);
       units.push(u); stage.appendChild(u.el);
     }
     const wt=$("waveTag");
-    if(wt)wt.textContent=`Wave ${waveIdx+1}/${sub.waves}`+(bossWave?" — BOSS! 👑":sub.horde?" — SWARM! 🐝":"");
+    if(wt)wt.textContent=`Wave ${waveIdx+1}/${sub.waves}`+(bossWave?" — BOSS! 👑":swarm?" — SWARM! 🐝":"");
   }
   function popText(t,txt,color,big){
     if(fast||!t.el)return;
