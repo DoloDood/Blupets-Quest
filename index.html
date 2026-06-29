@@ -3525,19 +3525,42 @@ async function playBossReplay(round){
   const stage=$("brfStage"), hpFill=$("brfHpFill"), hpTxt=$("brfHpTxt"), cap=ov.querySelector(".brf-cap");
   const rng=bossRng(round.seed||1);
   const alive=()=>document.body.contains(stage);
+  function later(t,fn){ bossTimers.push(setTimeout(()=>{ try{fn();}catch(e){} },t)); }
 
-  // ---- build the player squad (show up to 9; all damage still lands) ----
+  // ---- the round's numbers ----
+  const hpMax=(bossEvent&&bossEvent.hp_max)?bossEvent.hp_max:Math.max(1,Number(round.hp_before)||1);
+  const dead=Number(round.hp_after)<=0;
+  const floor=Math.max(0,Number(round.hp_after)||0);
+  const drainTotal=Math.max(0,(Number(round.hp_before)||0)-floor);
+  let hp=Number(round.hp_before)||0, done=false;
+  const setBar=()=>{ const pc=Math.max(0,Math.min(100,hp/hpMax*100)); if(hpFill)hpFill.style.width=pc+"%"; if(hpTxt)hpTxt.textContent=Math.max(0,Math.round(hp)).toLocaleString()+" / "+hpMax.toLocaleString(); };
+  setBar();
+
+  // ---- build the squad (show up to 9; each carries a damage budget) ----
   const order=strikes.slice();
   for(let i=order.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=order[i]; order[i]=order[j]; order[j]=t; }
   const VIS=Math.min(order.length,9), cols=VIS<=4?2:3;
-  const allies=order.slice(0,VIS).map((s,i)=>{
+  const visStr=order.slice(0,VIS), hidden=order.slice(VIS);
+  const hiddenDmg=hidden.reduce((a,s)=>a+(s.damage||0),0);
+  let budgets=visStr.map(s=>(s.damage||0)+hiddenDmg/VIS);
+  const bsum=budgets.reduce((a,b)=>a+b,0)||1;
+  budgets=budgets.map(b=>b/bsum*drainTotal);
+
+  const allies=visStr.map((s,i)=>{
     const snap=s.snapshot||{}, roll=s.roll||snap.roll||{};
-    const f={art:snap.art||"", tier:Math.min(4,Math.max(1,snap.tier||1)), role:snap.role||"bruiser", ele:snap.ele||"Arcane", level:snap.level||1, sizeM:0.86, spdM:1};
+    const tier=Math.min(4,Math.max(1,snap.tier||1)), level=snap.level||1;
+    const f={art:snap.art||"", tier, role:snap.role||"bruiser", ele:snap.ele||"Arcane", level, sizeM:0.86, spdM:1};
     const u=makeUnit(f,"ally",i,VIS);
     const col=i%cols, row=Math.floor(i/cols), rows=Math.ceil(VIS/cols);
     u.x=24+col*30; u.y=Math.round(STAGE_H*(row+1)/(rows+1));
     u._ranged=(f.role==="caster"||f.role==="mender"); u._ele=f.ele;
     u._crit=!!roll.crit; u._nuke=roll.kind==="nuke";
+    u._budget=budgets[i]; u._dealt=0; u._nHits=4+Math.floor(rng()*2);
+    u._maxhp=Math.round(30 + tier*18 + level*4.2); u._hp=u._maxhp; u._dead=false;   // level/tier -> survivability
+    const nm=(s.username||"trainer");
+    const lab=document.createElement("div"); lab.className="brf-name"; lab.textContent=nm;
+    lab.style.cssText="font-size:9px;line-height:1.1;max-width:58px;margin-top:2px;color:#ffd9ff;text-shadow:0 1px 2px #000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center";
+    u.el.appendChild(lab);
     stage.appendChild(u.el);
     return u;
   });
@@ -3557,22 +3580,17 @@ async function playBossReplay(round){
   boss.el.style.setProperty("--by",Math.round(boss.y-boss.size/2-8)+"px");
   place(boss);
 
-  // ---- state ----
-  const hpMax=(bossEvent&&bossEvent.hp_max)?bossEvent.hp_max:Math.max(1,Number(round.hp_before)||1);
-  const dead=Number(round.hp_after)<=0;
-  const drainTotal=Math.max(0,(Number(round.hp_before)||0)-Math.max(0,Number(round.hp_after)||0));
-  let hp=Number(round.hp_before)||0, done=false;
-  const setBar=()=>{ const pc=Math.max(0,Math.min(100,hp/hpMax*100)); if(hpFill)hpFill.style.width=pc+"%"; if(hpTxt)hpTxt.textContent=Math.max(0,Math.round(hp)).toLocaleString()+" / "+hpMax.toLocaleString(); };
-  setBar();
-
   // ---- fx helpers (reuse Expedition's visual classes) ----
-  const T=ms=>{ const id=setTimeout(()=>{ try{ms.fn();}catch(e){} },ms.t); bossTimers.push(id); };
-  function later(t,fn){ bossTimers.push(setTimeout(()=>{ try{fn();}catch(e){} },t)); }
   function popBoss(txt,kind){
     if(!boss.el)return; const r=boss.el.getBoundingClientRect();
     const d=document.createElement("div"); d.className="dmgpop"+(kind?(" "+kind):"");
     d.textContent=txt; d.style.left=(r.left+r.width/2)+"px"; d.style.top=(r.top+12)+"px";
     document.body.appendChild(d); later(760,()=>d.remove());
+  }
+  function popUnit(u,txt,color){
+    if(!u.el)return; const r=u.el.getBoundingClientRect();
+    const d=document.createElement("div"); d.className="dmgpop"; d.textContent=txt; if(color)d.style.color=color;
+    d.style.left=(r.left+r.width/2)+"px"; d.style.top=r.top+"px"; document.body.appendChild(d); later(700,()=>d.remove());
   }
   function eleBurst(x,y,ele){
     const pal=ELE_PAL[ele]||["#ffffff","#cccccc"];
@@ -3582,15 +3600,16 @@ async function playBossReplay(round){
       p.style.setProperty("--dx",(Math.cos(ang)*dist).toFixed(0)+"px"); p.style.setProperty("--dy",(Math.sin(ang)*dist).toFixed(0)+"px");
       stage.appendChild(p); later(440,()=>p.remove()); }
   }
-  function projectile(u,color){
+  function bolt(fromx,fromy,tox,toy,color){
     const d=document.createElement("div"); d.className="proj"; d.style.background=color; d.style.boxShadow="0 0 7px "+color;
-    d.style.left=u.x+"px"; d.style.top=u.y+"px"; stage.appendChild(d);
-    const dx=(boss.x-u.x).toFixed(0), dy=(boss.y-u.y).toFixed(0);
+    d.style.left=fromx+"px"; d.style.top=fromy+"px"; stage.appendChild(d);
+    const dx=(tox-fromx).toFixed(0), dy=(toy-fromy).toFixed(0);
     requestAnimationFrame(()=>{ d.style.transform=`translate(-50%,-50%) translate(${dx}px,${dy}px)`; });
     later(260,()=>d.remove());
   }
   function shake(){ if(!stage)return; stage.classList.remove("brfshake"); void stage.offsetWidth; stage.classList.add("brfshake"); }
-  function lunge(u){ if(!u.sprite)return; u.sprite.classList.remove("brf-lunge"); void u.sprite.offsetWidth; u.sprite.classList.add("brf-lunge"); }
+  function lunge(u){ if(!u||!u.sprite)return; u.sprite.classList.remove("brf-lunge"); void u.sprite.offsetWidth; u.sprite.classList.add("brf-lunge"); }
+  function recoil(u){ if(!u||!u.sprite)return; u.sprite.classList.remove("brf-recoil"); void u.sprite.offsetWidth; u.sprite.classList.add("brf-recoil"); }
   function hurtBoss(){ boss.el.classList.add("uhurt"); later(160,()=>boss.el.classList.remove("uhurt")); }
   function spawnMinions(n){
     for(let k=0;k<n;k++){
@@ -3601,47 +3620,79 @@ async function playBossReplay(round){
       later(900+rng()*500,()=>{ m.style.opacity=0; eleBurst(mx-50,my,"Arcane"); sfx("hit"); later(300,()=>m.remove()); });
     }
   }
-  function bossAttack(){
-    if(done||!alive())return;
-    shake(); sfx("boom");
-    const c=document.createElement("div"); c.className="castfx"; c.style.borderColor="#d640ff"; c.style.left=boss.x+"px"; c.style.top=boss.y+"px"; c.style.setProperty("--cs","96px"); stage.appendChild(c); later(550,()=>c.remove());
-    allies.forEach(a=>{ if(a.sprite){ a.sprite.classList.remove("brf-recoil"); void a.sprite.offsetWidth; a.sprite.classList.add("brf-recoil"); } a.el.classList.add("uhurt"); later(220,()=>a.el.classList.remove("uhurt")); });
-    spawnMinions(2+Math.floor(rng()*2));
-  }
-  function allyAttack(u,dmg,crit,nuke){
-    if(done||!alive())return;
-    if(u._ranged){ const pal=ELE_PAL[u._ele]||["#e89bff"]; projectile(u, pal[2]||pal[0]); } else lunge(u);
-    later(u._ranged?240:120,()=>{
+
+  // ---- the squad chips the boss ----
+  function doBossDamage(a,amt,crit,nuke){
+    if(done||!alive()||amt<=0)return;
+    if(a._ranged){ const pal=ELE_PAL[a._ele]||["#e89bff"]; bolt(a.x,a.y,boss.x,boss.y,pal[2]||pal[0]); } else lunge(a);
+    later(a._ranged?240:120,()=>{
       if(done||!alive())return;
-      hp=Math.max(Math.max(0,Number(round.hp_after)),hp-dmg); setBar();
-      hurtBoss(); eleBurst(boss.x-boss.size*0.2,boss.y,u._ele);
-      popBoss((crit?"✦":"")+Math.round(dmg).toLocaleString(), crit?"crit":nuke?"sup":"");
+      hp=Math.max(floor,hp-amt); setBar();
+      hurtBoss(); eleBurst(boss.x-boss.size*0.2,boss.y,a._ele);
+      popBoss((crit?"✦":"")+Math.round(amt).toLocaleString(), crit?"crit":nuke?"sup":"");
       if(crit||nuke){ sfx("boom"); shake(); } else sfx("hit");
     });
   }
+  function allyHit(a,isLast){
+    if(done||a._dead||!alive())return;
+    let amt=isLast?(a._budget-a._dealt):Math.round(a._budget/a._nHits);
+    if(amt<0)amt=0;
+    const crit=a._crit&&a._dealt===0, nuke=a._nuke&&a._dealt===0;
+    a._dealt+=amt; doBossDamage(a,amt,crit,nuke);
+  }
+
+  // ---- the boss strikes back ----
+  function killAlly(a){
+    if(a._dead)return; a._dead=true;
+    const rem=a._budget-a._dealt;
+    if(rem>0){ a._dealt=a._budget; doBossDamage(a,rem,false,false); }   // last stand: dump remaining damage
+    eleBurst(a.x,a.y,"Shadow"); sfx("hit");
+    if(a.el)a.el.classList.add("udown");
+    if(allies.every(x=>x._dead)) later(700,finish);
+  }
+  function bossHit(a){
+    if(a._dead||done||!alive())return;
+    const dmg=Math.round(45+rng()*52);
+    a._hp-=dmg; if(a.bar)a.bar.style.width=Math.max(0,a._hp/a._maxhp*100)+"%";
+    recoil(a); a.el.classList.add("uhurt"); later(200,()=>a.el.classList.remove("uhurt"));
+    popUnit(a,dmg,"#ff6b6b");
+    if(a._hp<=0) killAlly(a);
+  }
+  function bossAttack(){
+    if(done||!alive())return;
+    shake(); sfx("boom"); recoil(boss);
+    const c=document.createElement("div"); c.className="castfx"; c.style.borderColor="#d640ff"; c.style.left=boss.x+"px"; c.style.top=boss.y+"px"; c.style.setProperty("--cs","96px"); stage.appendChild(c); later(550,()=>c.remove());
+    const living=allies.filter(a=>!a._dead);
+    if(living.length){
+      const n=Math.min(living.length,1+Math.floor(rng()*2));
+      for(let k=0;k<n;k++){ const tgt=living[Math.floor(rng()*living.length)];
+        bolt(boss.x,boss.y,tgt.x,tgt.y,"#d640ff"); later(190,()=>bossHit(tgt)); }
+    }
+    spawnMinions(1+Math.floor(rng()*2));
+  }
+
   function finish(){
     if(done)return; done=true;
-    hp=Math.max(0,Number(round.hp_after)||0); setBar();
-    if(cap)cap.textContent=dead?"✅ The Cube is driven back!":"🛡️ The Cube endures — "+Math.max(0,Number(round.hp_after)||0).toLocaleString()+" HP left";
+    hp=floor; setBar();
+    if(cap)cap.textContent=dead?"✅ The Cube is driven back!":"🛡️ The Cube endures — "+floor.toLocaleString()+" HP left";
     if(dead&&alive()){
       boss.el.classList.add("dead"); sfx("victory");
       for(let i=0;i<6;i++) eleBurst(boss.x,boss.y,pick(["Arcane","Shadow","Heat","Frost"]));
-      allies.forEach(a=>{ if(a.sprite)lunge(a); });
+      allies.forEach(a=>{ if(!a._dead)lunge(a); });
       for(let i=0;i<16;i++){ const s=document.createElement("div"); s.className="heartpop"; s.textContent=pick(["🎉","✨","🏆","💜"]); s.style.left=(18+Math.random()*64)+"%"; s.style.top=(16+Math.random()*42)+"%"; s.style.fontSize="22px"; s.style.animationDelay=(i*0.04)+"s"; stage.appendChild(s); later(1600,()=>s.remove()); }
     }
   }
 
-  // ---- schedule the exchange ----
-  const ticks=Math.max(16,Math.min(VIS*4,40));
-  const dmgs=bossSplitDamage(drainTotal,ticks,rng);
-  const interval=Math.max(260,Math.floor(11000/ticks)), start=480;
-  for(let i=0;i<ticks;i++){
-    const u=allies[i%allies.length];
-    const crit=u._crit && rng()<0.34, nuke=u._nuke && rng()<0.4;
-    later(start+i*interval,()=>allyAttack(u,dmgs[i],crit,nuke));
-  }
-  [0.30,0.56,0.82].forEach(fr=>later(start+Math.floor(fr*ticks*interval),bossAttack));
-  later(start+ticks*interval+700,finish);
+  // ---- schedule ----
+  const D=11500, start=480;
+  allies.forEach((a,ai)=>{
+    for(let k=0;k<a._nHits;k++){
+      const t=start+Math.round((k/a._nHits)*D)+Math.round((ai/VIS)*260)+Math.round(rng()*200);
+      later(t,()=>allyHit(a,k===a._nHits-1));
+    }
+  });
+  for(let t=1600;t<D-300;t+=Math.round(1850+rng()*520)){ later(t,bossAttack); }
+  later(start+D+700,finish);
 
   bossReplayCtl={ skip(){ bossClearTimers(); finish(); } };
 }
