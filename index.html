@@ -3321,13 +3321,12 @@ function bossBoxHTML(){
   const ev=bossEvent;
   if(ev.state==="active"){
     const pctHp=Math.max(0,Math.min(100,Math.round(ev.hp_remaining/ev.hp_max*100)));
-    const myDmg=bossMe?(bossMe.damage||0):0;
     const action=bossIStruck
       ? `<button class="btn ghost" disabled style="width:100%">🛰️ Your champion marches at dawn</button>`
       : `<button class="btn grape" data-act="bossdispatch" style="width:100%">🚀 Send a Pet to Strike</button>`;
     const pendLine = (bossPending>0)
-      ? `<p class="center muted" style="font-size:11px;margin:6px 0 0">🗡️ ${bossPending} champion${bossPending>1?'s':''} staged for tonight's assault${myDmg>0?` · your total: <b style="color:#e89bff">${myDmg.toLocaleString()}</b>`:''}</p>`
-      : (myDmg>0?`<p class="center muted" style="font-size:11px;margin:6px 0 0">Your damage this cycle: <b style="color:#e89bff">${myDmg.toLocaleString()}</b></p>`:'');
+      ? `<p class="center muted" style="font-size:11px;margin:6px 0 0">🗡️ ${bossPending} champion${bossPending>1?'s':''} staged for tonight's assault — outcome revealed at dawn</p>`
+      : '';
     return `${bossScene(pctHp)}
       <p class="center muted" style="margin:4px 0 8px;font-size:12px">Blupia is being de-rezzed. Commit a champion — the strike force charges at dawn. <b>${bossTimeLeft(ev)}</b></p>
       <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span class="muted">Corruption</span><span class="muted">${Math.max(0,ev.hp_remaining).toLocaleString()} / ${ev.hp_max.toLocaleString()} HP</span></div>
@@ -3383,27 +3382,17 @@ function showDispatchPicker(){
   </div></div>`);
   document.body.appendChild(ov);
 }
-function rollStrike(p){
-  const f=buildFighter(p), base=petPower(p), role=f.role;
-  let v=0.82+Math.random()*0.36, mult=1, crit=false, kind="normal";
-  if(role==="skirmisher"){ if(Math.random()<0.42+(f.critBonus||0)){ crit=true; mult=2.0; } }
-  else if(role==="caster"){ if(Math.random()<0.35){ kind="nuke"; mult=1.7; } }
-  else if(role==="guardian"){ v=0.94+Math.random()*0.12; }
-  else if(role==="bruiser"){ v=0.80+Math.random()*0.46; if(Math.random()<0.22){ crit=true; mult=1.8; } }
-  else { v=0.86+Math.random()*0.30; }
-  const total=Math.max(1, Math.round(base*v*mult*(1+(f.dmgAmp||0))));
-  return { total, crit, kind, role };
-}
-function strikeSnapshot(p, roll){
+function strikeSnapshot(p){
+  const f=buildFighter(p);
   return { name:petDisplayName(p), art:petArtURL(p,72), ele:famElement(FAM_BY_ID[p.familyId]),
-    role:roll.role, level:p.level, tier:p.tier, power:petPower(p), roll:{crit:roll.crit,kind:roll.kind} };
+    role:f.role, level:p.level, tier:p.tier, power:petPower(p) };
 }
 async function dispatchPet(iid){
   const p=S.pets.find(x=>x.iid===iid); if(!p)return;
   if(isGuest||!sbc||!authUser){toast("Sign in to join the community event.");return;}
-  const roll=rollStrike(p), snap=strikeSnapshot(p,roll), day=periodKeys().day;
+  const snap=strikeSnapshot(p), day=periodKeys().day;
   let r=null;
-  try{ const res=await sbc.rpc("dispatch_pet",{p_pet_id:iid,p_damage:roll.total,p_day_key:day,p_snapshot:snap}); r=res.data; }
+  try{ const res=await sbc.rpc("dispatch_pet",{p_pet_id:iid,p_day_key:day,p_snapshot:snap}); r=res.data; }
   catch(e){ toast("Couldn't reach the Cube — try again."); return; }
   if(!r){ toast("Dispatch failed — try again."); return; }
   if(!r.ok){
@@ -3414,7 +3403,7 @@ async function dispatchPet(iid){
   }
   bossEvent=r.event; bossMe=r.me; bossIStruck=true; bossPending=(bossPending||0)+1; bossSyncLocal();
   closeOverlay(); sfx("charge");
-  toast(`🚀 ${petDisplayName(p)} marches on the Cube — the assault lands at dawn!`);
+  toast(`🚀 ${petDisplayName(p)} marches on the Cube — the outcome unfolds at dawn!`);
   render();
 }
 function grantBossReward(ev,myDmg,total,myRank,defeated){
@@ -3510,7 +3499,7 @@ function runReplay(stage, strikes, round, rng){
   const heroes=order.slice(0,12), reins=order.slice(12);
   const alive=()=>document.body.contains(stage);
   function popDmg(s,top){
-    const roll=(s.snapshot&&s.snapshot.roll)||{};
+    const roll=s.roll||(s.snapshot&&s.snapshot.roll)||{};
     const d=document.createElement("div");
     d.className="brf-dmg"+(roll.crit?" crit":"")+(roll.kind==="nuke"?" nuke":"");
     d.textContent=(roll.crit?"✦":"")+(s.damage||0).toLocaleString();
@@ -3521,7 +3510,7 @@ function runReplay(stage, strikes, round, rng){
     if(done||!alive())return;
     const s=heroes[i];
     if(!s){ volley(); return; }
-    const roll=(s.snapshot&&s.snapshot.roll)||{};
+    const roll=s.roll||(s.snapshot&&s.snapshot.roll)||{};
     const top=24+Math.floor(rng()*200);
     const el=document.createElement("img"); el.className="brf-hero"; el.alt=""; el.src=(s.snapshot&&s.snapshot.art)||""; el.style.top=top+"px";
     stage.appendChild(el);
@@ -3574,7 +3563,7 @@ async function playBossReplay(round){
   if(!round||!bossEvent){ toast("No assault to watch yet."); return; }
   const key=bossEvent.event_key, day=round.round_day;
   let strikes=[];
-  try{ const {data}=await sbc.from("boss_strike").select("username,pet_id,damage,snapshot").eq("event_key",key).eq("round_day",day).order("id"); strikes=data||[]; }catch(e){}
+  try{ const {data}=await sbc.from("boss_strike").select("username,pet_id,damage,snapshot,roll").eq("event_key",key).eq("round_day",day).order("id"); strikes=data||[]; }catch(e){}
   if(!S.boss.watched)S.boss.watched={}; S.boss.watched[day]=true; save();
   if(!strikes.length){ toast("No strikes were recorded that day."); const box=document.getElementById("bossBox"); if(box)box.innerHTML=bossBoxHTML(); return; }
   bossInjectReplayCSS(); bossClearTimers();
