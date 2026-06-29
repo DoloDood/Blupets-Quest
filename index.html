@@ -748,7 +748,7 @@ function freshState(){
     cookTab:"cook", cookRole:"any", cookPremium:false, tradeFrom:"Red", tradeTo:"Blue",
     prep:{snack:false,tonic:false,focus:false}, decorOwned:{}, decor:{}, decorPos:{},
     stats:{mobs:0,bosses:0,pets:0,evolutions:0,expeditions:0}, username:null,
-    lb:{day:null,week:null,dayStats:{},weekStats:{}}, daily:{last:null,streak:0}, merchantTs:0, cooking:null, goalClaimed:{}, boss:{key:null,pets:[],lastDay:null,claimed:{},trophies:[]}};
+    lb:{day:null,week:null,dayStats:{},weekStats:{}}, daily:{last:null,streak:0}, merchantTs:0, cooking:null, goalClaimed:{}, boss:{key:null,pets:[],lastDay:null,claimed:{},trophies:[],watched:{}}};
 }
 function migrateState(){
   let mx=0;(S.pets||[]).forEach(p=>{const n=parseInt((p.iid||"p0").slice(1))||0; if(n>mx)mx=n;}); IID=mx+1;
@@ -763,8 +763,8 @@ function migrateState(){
   if(!S.quests)S.quests=null;
   if(S.cooking===undefined)S.cooking=null;
   if(S.goalClaimed==null)S.goalClaimed={}; else if(typeof S.goalClaimed==="string")S.goalClaimed={[S.goalClaimed]:true};
-  if(!S.boss)S.boss={key:null,pets:[],lastDay:null,claimed:{},trophies:[]};
-  else{ if(!S.boss.pets)S.boss.pets=[]; if(!S.boss.claimed)S.boss.claimed={}; if(!S.boss.trophies)S.boss.trophies=[]; }
+  if(!S.boss)S.boss={key:null,pets:[],lastDay:null,claimed:{},trophies:[],watched:{}};
+  else{ if(!S.boss.pets)S.boss.pets=[]; if(!S.boss.claimed)S.boss.claimed={}; if(!S.boss.trophies)S.boss.trophies=[]; if(!S.boss.watched)S.boss.watched={}; }
   if(S.username===undefined)S.username=null;
   (S.pets||[]).forEach(p=>{ if(p.bond==null)p.bond=0; if(p.vibe==null)p.vibe=rint(64); if(!p.role)p.role=ROLE_OF(p.vibe); });
   if(!S.progress){S.progress={}; const c=S.cleared||0; for(let i=0;i<c&&i<ZONES.length;i++)S.progress[ZONES[i].id]=ZONES[i].stages;}
@@ -2691,6 +2691,10 @@ document.addEventListener("click",e=>{
   else if(act==="bossdispatch"){showDispatchPicker();}
   else if(act==="bosssend"){dispatchPet(t.dataset.iid);}
   else if(act==="bossresults"){showBossResults();}
+  else if(act==="bosswatch"){playBossReplay(bossLatestRound);}
+  else if(act==="bossreplayskip"){ if(bossReplayCtl)bossReplayCtl.skip(); }
+  else if(act==="bossreplayagain"){ const rd=bossReplayRound; bossClearTimers(); closeOverlay(); if(rd)playBossReplay(rd); }
+  else if(act==="bossreplayclose"){ bossClearTimers(); closeOverlay(); render(); }
   else if(act==="blitz"){openBlitz();}
   else if(act==="blitzpick"){startBlitz(t.dataset.iid);}
   else if(act==="magiclink"){doMagicLink();}
@@ -3262,18 +3266,23 @@ async function loadCommunity(ov){
 }
 /* =================== COMMUNITY BOSS (Tier 1 async multiplayer) =================== */
 let bossEvent=null, bossMe=null, bossServerNow=null, bossFetchedAt=0;
+let bossToday=null, bossPending=0, bossIStruck=false, bossLatestRound=null;
+let bossTimers=[], bossReplayCtl=null, bossReplayRound=null;
 function bossEsc(s){return String(s||"").replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));}
 function bossErrMsg(code){return {already_today:"You've already sent a pet today ⏳", pet_spent:"That pet already marched this cycle.", window_over:"The Cube has retreated — the event is over.", event_closed:"This event has closed.", bad_damage:"Invalid dispatch.", not_authenticated:"Sign in to join the event."}[code]||"Dispatch failed — try again.";}
 async function bossFetch(){
   if(isGuest||!sbc||!authUser)return null;
   try{ const {data}=await sbc.rpc("boss_event_current");
-    if(data){ bossEvent=data.event||null; bossMe=data.me||null; bossServerNow=data.server_now||null; bossSyncLocal(); }
+    if(data){ bossEvent=data.event||null; bossMe=data.me||null; bossServerNow=data.server_now||null;
+      bossToday=data.today||null; bossPending=data.pending_today||0; bossIStruck=!!data.i_struck_today;
+      bossLatestRound=(data.latest_round&&data.latest_round.round_day)?data.latest_round:null; bossSyncLocal(); }
     bossFetchedAt=Date.now(); return data;
   }catch(e){ return null; }
 }
 function bossSyncLocal(){
   if(!bossEvent)return;
-  if(!S.boss)S.boss={key:null,pets:[],lastDay:null,claimed:{},trophies:[]};
+  if(!S.boss)S.boss={key:null,pets:[],lastDay:null,claimed:{},trophies:[],watched:{}};
+  if(!S.boss.watched)S.boss.watched={};
   if(S.boss.key!==bossEvent.event_key){ S.boss.key=bossEvent.event_key; S.boss.pets=[]; S.boss.lastDay=null; }
   if(bossMe){ S.boss.pets=(bossMe.pets_used||[]).slice(); S.boss.lastDay=bossMe.last_dispatch_day||null; }
   save();
@@ -3301,38 +3310,55 @@ function bossPanelHTML(){
     <div id="bossBox" style="margin-top:6px">${bossBoxHTML()}</div>
   </div>`;
 }
+function bossWatchHTML(){
+  if(!bossLatestRound)return "";
+  const day=bossLatestRound.round_day;
+  const seen=S.boss&&S.boss.watched&&S.boss.watched[day];
+  return `<button class="btn ${seen?'ghost':'mint'}" data-act="bosswatch" style="width:100%;margin-top:8px">⚔️ ${seen?'Rewatch the dawn assault':"Watch the dawn assault!"}</button>`;
+}
 function bossBoxHTML(){
   if(!bossEvent) return `<p class="muted center" style="margin:10px 0">Scanning for the Cube…</p>`;
   const ev=bossEvent;
   if(ev.state==="active"){
     const pctHp=Math.max(0,Math.min(100,Math.round(ev.hp_remaining/ev.hp_max*100)));
-    const dispatchedToday=S.boss&&S.boss.lastDay===periodKeys().day;
     const myDmg=bossMe?(bossMe.damage||0):0;
-    const btn=dispatchedToday
-      ? `<button class="btn ghost" disabled style="width:100%">🛰️ Pet en route — back at daily reset</button>`
+    const action=bossIStruck
+      ? `<button class="btn ghost" disabled style="width:100%">🛰️ Your champion marches at dawn</button>`
       : `<button class="btn grape" data-act="bossdispatch" style="width:100%">🚀 Send a Pet to Strike</button>`;
+    const pendLine = (bossPending>0)
+      ? `<p class="center muted" style="font-size:11px;margin:6px 0 0">🗡️ ${bossPending} champion${bossPending>1?'s':''} staged for tonight's assault${myDmg>0?` · your total: <b style="color:#e89bff">${myDmg.toLocaleString()}</b>`:''}</p>`
+      : (myDmg>0?`<p class="center muted" style="font-size:11px;margin:6px 0 0">Your damage this cycle: <b style="color:#e89bff">${myDmg.toLocaleString()}</b></p>`:'');
     return `${bossScene(pctHp)}
-      <p class="center muted" style="margin:4px 0 8px;font-size:12px">Blupia is being de-rezzed. Strike together to drive the Cube back. <b>${bossTimeLeft(ev)}</b></p>
+      <p class="center muted" style="margin:4px 0 8px;font-size:12px">Blupia is being de-rezzed. Commit a champion — the strike force charges at dawn. <b>${bossTimeLeft(ev)}</b></p>
       <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span class="muted">Corruption</span><span class="muted">${Math.max(0,ev.hp_remaining).toLocaleString()} / ${ev.hp_max.toLocaleString()} HP</span></div>
       <div style="height:14px;border-radius:8px;background:#2a1430;overflow:hidden;border:1px solid #50204a"><i style="display:block;height:100%;width:${pctHp}%;background:linear-gradient(90deg,#ff5a55,#d640ff);transition:width .5s"></i></div>
-      ${myDmg>0?`<p class="center muted" style="font-size:11px;margin:6px 0 0">Your damage this cycle: <b style="color:#e89bff">${myDmg.toLocaleString()}</b></p>`:''}
-      <div style="height:8px"></div>${btn}`;
+      ${pendLine}
+      ${bossWatchHTML()}
+      <div style="height:8px"></div>${action}`;
   }
   const won=ev.state==="defeated";
   return `${bossScene(won?0:60)}
     <p class="center" style="margin:4px 0 6px;font-weight:800;color:${won?'#5fd06a':'#ff8a8a'}">${won?'✅ The Cube was driven back!':'🛡️ The Cube retreated for reinforcements'}</p>
     <p class="center muted" style="font-size:12px;margin:0 0 8px">Results are in. A new event spins up soon.</p>
-    <button class="btn grape" data-act="bossresults" style="width:100%">🏆 View Results & Rewards</button>`;
+    ${bossWatchHTML()}
+    <button class="btn grape" data-act="bossresults" style="width:100%;margin-top:8px">🏆 View Results & Rewards</button>`;
 }
 async function bossRefresh(){
   if(isGuest||!sbc||!authUser)return;
   await bossFetch();
   const box=document.getElementById("bossBox");
   if(box)box.innerHTML=bossBoxHTML();
+  if(S.tab!=="camp"||document.querySelector(".overlay"))return;
+  // a freshly resolved dawn battle nobody here has watched -> play it once
+  if(bossLatestRound){
+    const day=bossLatestRound.round_day;
+    if(!(S.boss&&S.boss.watched&&S.boss.watched[day])){ playBossReplay(bossLatestRound); return; }
+  }
+  // event over with unclaimed rewards -> show results
   if(bossEvent&&bossEvent.state!=="active"){
     const joined=bossMe&&(bossMe.damage||0)>0;
     const unclaimed=!(S.boss&&S.boss.claimed&&S.boss.claimed[bossEvent.event_key]);
-    if(joined&&unclaimed&&S.tab==="camp"&&!document.querySelector(".overlay")){ showBossResults(); }
+    if(joined&&unclaimed){ showBossResults(); }
   }
 }
 function showDispatchPicker(){
@@ -3357,12 +3383,27 @@ function showDispatchPicker(){
   </div></div>`);
   document.body.appendChild(ov);
 }
+function rollStrike(p){
+  const f=buildFighter(p), base=petPower(p), role=f.role;
+  let v=0.82+Math.random()*0.36, mult=1, crit=false, kind="normal";
+  if(role==="skirmisher"){ if(Math.random()<0.42+(f.critBonus||0)){ crit=true; mult=2.0; } }
+  else if(role==="caster"){ if(Math.random()<0.35){ kind="nuke"; mult=1.7; } }
+  else if(role==="guardian"){ v=0.94+Math.random()*0.12; }
+  else if(role==="bruiser"){ v=0.80+Math.random()*0.46; if(Math.random()<0.22){ crit=true; mult=1.8; } }
+  else { v=0.86+Math.random()*0.30; }
+  const total=Math.max(1, Math.round(base*v*mult*(1+(f.dmgAmp||0))));
+  return { total, crit, kind, role };
+}
+function strikeSnapshot(p, roll){
+  return { name:petDisplayName(p), art:petArtURL(p,72), ele:famElement(FAM_BY_ID[p.familyId]),
+    role:roll.role, level:p.level, tier:p.tier, power:petPower(p), roll:{crit:roll.crit,kind:roll.kind} };
+}
 async function dispatchPet(iid){
   const p=S.pets.find(x=>x.iid===iid); if(!p)return;
   if(isGuest||!sbc||!authUser){toast("Sign in to join the community event.");return;}
-  const dmg=petPower(p), day=periodKeys().day;
+  const roll=rollStrike(p), snap=strikeSnapshot(p,roll), day=periodKeys().day;
   let r=null;
-  try{ const res=await sbc.rpc("dispatch_pet",{p_pet_id:iid,p_damage:dmg,p_day_key:day}); r=res.data; }
+  try{ const res=await sbc.rpc("dispatch_pet",{p_pet_id:iid,p_damage:roll.total,p_day_key:day,p_snapshot:snap}); r=res.data; }
   catch(e){ toast("Couldn't reach the Cube — try again."); return; }
   if(!r){ toast("Dispatch failed — try again."); return; }
   if(!r.ok){
@@ -3371,10 +3412,9 @@ async function dispatchPet(iid){
     if(r.me){bossMe=r.me; bossSyncLocal();}
     closeOverlay(); bossRefresh(); return;
   }
-  bossEvent=r.event; bossMe=r.me; bossSyncLocal();
-  closeOverlay(); sfx("boom");
-  toast(`💥 ${petDisplayName(p)} struck for ${dmg.toLocaleString()}!`);
-  if(bossEvent.state==="defeated")sfx("victory");
+  bossEvent=r.event; bossMe=r.me; bossIStruck=true; bossPending=(bossPending||0)+1; bossSyncLocal();
+  closeOverlay(); sfx("charge");
+  toast(`🚀 ${petDisplayName(p)} marches on the Cube — the assault lands at dawn!`);
   render();
 }
 function grantBossReward(ev,myDmg,total,myRank,defeated){
@@ -3427,6 +3467,135 @@ async function showBossResults(){
   if(reward){ sfx(defeated?"victory":"reveal");
     for(let i=0;i<16;i++){const s=document.createElement("div");s.className="heartpop";s.textContent=pick(defeated?["🎉","✨","🏆","💜","⭐"]:["✨","💠","⭐"]);s.style.left=(10+Math.random()*80)+"%";s.style.top=(20+Math.random()*40)+"%";s.style.fontSize="20px";s.style.animationDelay=(i*0.04)+"s";document.body.appendChild(s);setTimeout(()=>s.remove(),1500);}
   }
+}
+/* ---- dawn assault replay (deterministic, shared seed) ---- */
+function bossRng(seed){ let s=(Number(seed)>>>0)||1; return ()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+function bossClearTimers(){ (bossTimers||[]).forEach(t=>clearTimeout(t)); bossTimers=[]; }
+function bossInjectReplayCSS(){
+  if(document.getElementById("bossReplayCSS"))return;
+  const st=document.createElement("style"); st.id="bossReplayCSS";
+  st.textContent=`
+  .brf-wrap{position:relative;width:100%;height:300px;border-radius:12px;overflow:hidden;background:radial-gradient(circle at 72% 42%,#2a1240,#0d0618 72%);border:1px solid #50204a}
+  .brf-cube{position:absolute;right:20px;top:50%;transform:translateY(-50%);width:74px;height:74px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:30px;background:linear-gradient(135deg,#c46af0,#7a2fd0);box-shadow:0 0 24px #b040ff,inset 0 0 18px #5e2a96}
+  .brf-cube.hit{animation:brfShake .26s}
+  .brf-cube.dead{animation:brfShatter .9s forwards}
+  @keyframes brfShake{0%,100%{transform:translateY(-50%)}25%{transform:translate(-4px,-52%)}50%{transform:translate(4px,-48%)}75%{transform:translate(-3px,-50%)}}
+  @keyframes brfShatter{to{transform:translateY(-50%) scale(.15) rotate(48deg);opacity:0;filter:blur(3px)}}
+  .brf-hero{position:absolute;left:-64px;width:46px;height:46px;image-rendering:pixelated;filter:drop-shadow(0 2px 3px #000a);transition:left .42s cubic-bezier(.5,-0.2,.4,1.25)}
+  .brf-hero.charge{left:calc(100% - 118px)}
+  .brf-hero.retreat{left:-64px;opacity:0;transition:left .5s,opacity .5s}
+  .brf-dmg{position:absolute;font-weight:900;font-size:16px;color:#fff;text-shadow:0 2px 3px #000;pointer-events:none;animation:brfFloat 1s forwards}
+  .brf-dmg.crit{font-size:25px;color:#ffe07a}
+  .brf-dmg.nuke{font-size:22px;color:#e89bff}
+  @keyframes brfFloat{0%{transform:translateY(0);opacity:0}15%{opacity:1}100%{transform:translateY(-42px);opacity:0}}
+  .brf-beam{position:absolute;height:4px;border-radius:2px;background:linear-gradient(90deg,transparent,#e89bff,#fff);transform-origin:left;animation:brfBeam .32s forwards}
+  @keyframes brfBeam{from{opacity:1;transform:scaleX(.1)}to{opacity:0;transform:scaleX(1)}}
+  .brf-flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+  .brf-flash.go{animation:brfFlash .25s}
+  @keyframes brfFlash{from{opacity:.45}to{opacity:0}}
+  .brf-hpwrap{position:absolute;top:10px;left:12px;right:12px;z-index:3}
+  .brf-hpbar{height:14px;border-radius:8px;background:#2a1430;overflow:hidden;border:1px solid #50204a}
+  .brf-hpbar i{display:block;height:100%;background:linear-gradient(90deg,#ff5a55,#d640ff);transition:width .45s}`;
+  document.head.appendChild(st);
+}
+function runReplay(stage, strikes, round, rng){
+  const cube=stage.querySelector(".brf-cube"), hpFill=stage.querySelector(".brf-hpbar i"), flash=stage.querySelector(".brf-flash");
+  const cap=stage.parentNode.querySelector(".brf-cap");
+  const hpMax=bossEvent?bossEvent.hp_max:Math.max(1,Number(round.hp_before));
+  let hp=Number(round.hp_before)||0, done=false;
+  const setHp=()=>{ hpFill.style.width=Math.max(0,Math.min(100,hp/hpMax*100))+"%"; };
+  setHp();
+  const order=strikes.slice();
+  for(let i=order.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=order[i]; order[i]=order[j]; order[j]=t; }
+  const heroes=order.slice(0,12), reins=order.slice(12);
+  const alive=()=>document.body.contains(stage);
+  function popDmg(s,top){
+    const roll=(s.snapshot&&s.snapshot.roll)||{};
+    const d=document.createElement("div");
+    d.className="brf-dmg"+(roll.crit?" crit":"")+(roll.kind==="nuke"?" nuke":"");
+    d.textContent=(roll.crit?"✦":"")+(s.damage||0).toLocaleString();
+    d.style.right="78px"; d.style.top=Math.max(8,top-6)+"px"; stage.appendChild(d);
+    bossTimers.push(setTimeout(()=>d.remove(),1000));
+  }
+  function hero(i){
+    if(done||!alive())return;
+    const s=heroes[i];
+    if(!s){ volley(); return; }
+    const roll=(s.snapshot&&s.snapshot.roll)||{};
+    const top=24+Math.floor(rng()*200);
+    const el=document.createElement("img"); el.className="brf-hero"; el.alt=""; el.src=(s.snapshot&&s.snapshot.art)||""; el.style.top=top+"px";
+    stage.appendChild(el);
+    bossTimers.push(setTimeout(()=>{ if(alive())el.classList.add("charge"); },30));
+    bossTimers.push(setTimeout(()=>{
+      if(!alive())return;
+      cube.classList.remove("hit"); void cube.offsetWidth; cube.classList.add("hit");
+      if(roll.kind==="nuke"){ const b=document.createElement("div"); b.className="brf-beam"; b.style.top=(top+22)+"px"; b.style.left="58px"; b.style.right="92px"; stage.appendChild(b); bossTimers.push(setTimeout(()=>b.remove(),340)); }
+      if(roll.crit){ flash.classList.remove("go"); void flash.offsetWidth; flash.classList.add("go"); sfx("boom"); } else sfx("hit");
+      popDmg(s,top); hp-=(s.damage||0); setHp();
+      el.classList.add("retreat"); bossTimers.push(setTimeout(()=>el.remove(),520));
+    },460));
+    bossTimers.push(setTimeout(()=>hero(i+1),720));
+  }
+  function volley(){
+    if(!alive()){ finish(); return; }
+    if(!reins.length){ finish(); return; }
+    const sum=reins.reduce((a,s)=>a+(s.damage||0),0), n=Math.min(reins.length,14);
+    for(let k=0;k<n;k++){
+      bossTimers.push(setTimeout(()=>{
+        if(!alive())return;
+        const top=24+Math.floor(rng()*200);
+        const el=document.createElement("img"); el.className="brf-hero"; el.alt=""; el.src=(reins[k].snapshot&&reins[k].snapshot.art)||""; el.style.top=top+"px"; el.style.width="30px"; el.style.height="30px";
+        stage.appendChild(el);
+        requestAnimationFrame(()=>el.classList.add("charge"));
+        bossTimers.push(setTimeout(()=>{ if(!alive())return; cube.classList.remove("hit"); void cube.offsetWidth; cube.classList.add("hit"); sfx("hit"); el.classList.add("retreat"); bossTimers.push(setTimeout(()=>el.remove(),520)); },400));
+      },k*70));
+    }
+    bossTimers.push(setTimeout(()=>{
+      if(!alive()){ finish(); return; }
+      const d=document.createElement("div"); d.className="brf-dmg"; d.style.fontSize="19px"; d.style.right="64px"; d.style.top="132px";
+      d.textContent="⚡ reinforcements "+sum.toLocaleString(); stage.appendChild(d); bossTimers.push(setTimeout(()=>d.remove(),1200));
+      hp-=sum; setHp(); finish();
+    },n*70+480));
+  }
+  function finish(){
+    if(done)return; done=true;
+    hp=Number(round.hp_after)||0; setHp();
+    const dead=Number(round.hp_after)<=0;
+    if(dead&&alive()){ cube.classList.add("dead"); sfx("victory");
+      for(let i=0;i<14;i++){ const s=document.createElement("div"); s.className="heartpop"; s.textContent=pick(["🎉","✨","🏆","💜"]); s.style.left=(18+Math.random()*64)+"%"; s.style.top=(18+Math.random()*44)+"%"; s.style.fontSize="20px"; s.style.animationDelay=(i*0.04)+"s"; stage.appendChild(s); bossTimers.push(setTimeout(()=>s.remove(),1500)); }
+    }
+    if(cap)cap.textContent=dead?"✅ The Cube is driven back!":"🛡️ The Cube endures — "+Math.max(0,Number(round.hp_after)).toLocaleString()+" HP left";
+  }
+  hero(0);
+  return { skip(){ bossClearTimers(); finish(); } };
+}
+async function playBossReplay(round){
+  if(typeof round==="string"||!round)round=bossLatestRound;
+  if(!round||!bossEvent){ toast("No assault to watch yet."); return; }
+  const key=bossEvent.event_key, day=round.round_day;
+  let strikes=[];
+  try{ const {data}=await sbc.from("boss_strike").select("username,pet_id,damage,snapshot").eq("event_key",key).eq("round_day",day).order("id"); strikes=data||[]; }catch(e){}
+  if(!S.boss.watched)S.boss.watched={}; S.boss.watched[day]=true; save();
+  if(!strikes.length){ toast("No strikes were recorded that day."); const box=document.getElementById("bossBox"); if(box)box.innerHTML=bossBoxHTML(); return; }
+  bossInjectReplayCSS(); bossClearTimers();
+  const ov=h(`<div class="overlay"><div class="battle" style="max-width:520px">
+    <h2 class="title center" style="margin-bottom:4px">⚔️ Assault on the Cube</h2>
+    <p class="center muted" style="margin:0 0 8px;font-size:12px">${strikes.length} champion${strikes.length>1?'s':''} struck · ${day}</p>
+    <div class="brf-wrap">
+      <div class="brf-hpwrap"><div class="brf-hpbar"><i style="width:100%"></i></div></div>
+      <div class="brf-flash"></div>
+      <div class="brf-cube">🟪</div>
+    </div>
+    <p class="brf-cap center" style="font-weight:800;margin:10px 0 4px;min-height:20px"></p>
+    <div class="grid2" style="margin-top:4px">
+      <button class="btn ghost sm" data-act="bossreplayskip">⏭ Skip</button>
+      <button class="btn ghost sm" data-act="bossreplayagain">↻ Replay</button>
+    </div>
+    <button class="btn ghost" data-act="bossreplayclose" style="width:100%;margin-top:8px">Close</button>
+  </div></div>`);
+  document.body.appendChild(ov);
+  bossReplayRound=round;
+  bossReplayCtl=runReplay(ov.querySelector(".brf-wrap"), strikes, round, bossRng(round.seed||1));
 }
 function cloudSaveNow(){ if(isGuest||!sbc||!authUser)return;
   try{ sbc.from("game_saves").upsert({user_id:authUser.id,state:S,updated_at:new Date().toISOString()}).then(()=>{},()=>{}); }catch(e){} }
