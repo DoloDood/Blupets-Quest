@@ -407,6 +407,8 @@
   .arena-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;flex-wrap:wrap}
   #waveTag{margin-bottom:2px}
   .proj{position:absolute;transform:translate(-50%,-50%);transition:transform .22s linear;z-index:220;pointer-events:none;image-rendering:pixelated;filter:drop-shadow(0 0 3px #0004)}
+  .proj .pxcore{display:inline-block;line-height:0;image-rendering:pixelated;animation:projspin .55s linear infinite}
+  @keyframes projspin{to{transform:rotate(360deg)}}
   .impact{position:absolute;width:14px;height:14px;border-radius:50%;transform:translate(-50%,-50%) scale(.4);
     z-index:55;pointer-events:none;opacity:.9;animation:impactpop .34s ease-out forwards}
   @keyframes impactpop{0%{transform:translate(-50%,-50%) scale(.3);opacity:.95}
@@ -2405,13 +2407,15 @@ function playExpedition(zone){
     stage.appendChild(d); setTimeout(()=>{d.remove();},340);
   }
   function spawnProjectile(u,t,ele){
+    const pal=ELE_PAL[ele]||ELE_PAL.Arcane;
     const d=document.createElement("div"); d.className="proj";
-    d.innerHTML=PROJ_SVG[ele]||PROJ_SVG.Heat;
+    d.style.filter="drop-shadow(0 0 4px "+(pal[1]||pal[0])+")";
+    d.innerHTML='<span class="pxcore">'+(PROJ_SVG[ele]||PROJ_SVG.Heat)+'</span>';
     d.style.left=u.x+"px"; d.style.top=u.y+"px";
     stage.appendChild(d);
     const dx=(t.x-u.x).toFixed(0), dy=(t.y-u.y).toFixed(0);
     requestAnimationFrame(()=>{ d.style.transform=`translate(-50%,-50%) translate(${dx}px,${dy}px)`; });
-    setTimeout(()=>d.remove(),260);
+    setTimeout(()=>d.remove(),300);
   }
   const ELE_EMO={Heat:"🔥",Solar:"☀️",Growth:"🍃",Aqua:"💧",Frost:"❄️",Arcane:"🔮",Shadow:"🌑",Pale:"☁️"};
   function spawnEleBurst(t,el,small){
@@ -2427,15 +2431,6 @@ function playExpedition(zone){
       p.style.setProperty("--dx",dx.toFixed(0)+"px"); p.style.setProperty("--dy",dy.toFixed(0)+"px");
       stage.appendChild(p); setTimeout(()=>p.remove(),360+rint(140));
     }
-  }
-  function spawnProjectile(u,t,color){
-    const d=document.createElement("div"); d.className="proj";
-    d.style.background=color; d.style.boxShadow="0 0 7px "+color;
-    d.style.left=u.x+"px"; d.style.top=u.y+"px";
-    stage.appendChild(d);
-    const dx=(t.x-u.x).toFixed(0), dy=(t.y-u.y).toFixed(0);
-    requestAnimationFrame(()=>{ d.style.transform=`translate(-50%,-50%) translate(${dx}px,${dy}px)`; });
-    setTimeout(()=>d.remove(),260);
   }
   function killUnit(t){ if(t.dead)return; t.dead=true; if(t.el)t.el.classList.add("udown"); if(t.side==="foe")foeKills++; t.target=null; }
   function rollMiss(u,M){ if(M&&M.miss>0&&chance(M.miss)){ if(!fast)popText(u,"miss","#cdb18a"); return true; } return false; }
@@ -2592,7 +2587,7 @@ function playExpedition(zone){
         const dx=t.x-u.x,dy=t.y-u.y,d=Math.hypot(dx,dy)||0.01;
         if(u.range==="ranged"){
           // ---- Caster: kite & shelter behind frontline allies ----
-          const want=96, threat=foes.length?nearest(u,foes):null;
+          const want=110, threat=foes.length?nearest(u,foes):null;
           const thd=threat?Math.hypot(threat.x-u.x,threat.y-u.y):1e9;
           if(threat&&thd<want*0.7){
             const a=Math.atan2(u.y-threat.y,u.x-threat.x); u.x+=Math.cos(a)*spd*dt;u.y+=Math.sin(a)*spd*dt; clampPos(u);
@@ -3698,6 +3693,12 @@ async function playBossReplay(round){
     d.style.left=fx+"px"; d.style.top=fy+"px"; stage.appendChild(d);
     const dx=(tx-fx).toFixed(0), dy=(ty-fy).toFixed(0);
     requestAnimationFrame(()=>{ d.style.transform=`translate(-50%,-50%) translate(${dx}px,${dy}px)`; }); later(260,()=>d.remove()); }
+  function pxBolt(fx,fy,tx,ty,ele){ const pal=ELE_PAL[ele]||ELE_PAL.Arcane;
+    const d=document.createElement("div"); d.className="proj"; d.style.filter="drop-shadow(0 0 4px "+(pal[1]||pal[0])+")";
+    d.innerHTML='<span class="pxcore">'+(PROJ_SVG[ele]||PROJ_SVG.Arcane)+'</span>';
+    d.style.left=fx+"px"; d.style.top=fy+"px"; stage.appendChild(d);
+    const dx=(tx-fx).toFixed(0), dy=(ty-fy).toFixed(0);
+    requestAnimationFrame(()=>{ d.style.transform=`translate(-50%,-50%) translate(${dx}px,${dy}px)`; }); later(300,()=>d.remove()); }
   function shake(){ if(!stage)return; stage.classList.remove("brfshake"); void stage.offsetWidth; stage.classList.add("brfshake"); }
   function recoil(u){ if(!u||!u.sprite)return; u.sprite.classList.remove("brf-recoil"); void u.sprite.offsetWidth; u.sprite.classList.add("brf-recoil"); }
   function hurtBoss(){ boss.el.classList.add("uhurt"); later(150,()=>boss.el.classList.remove("uhurt")); }
@@ -3714,7 +3715,7 @@ async function playBossReplay(round){
     if(a._budget-a._dealt<=a._hitDmg*1.4) amt=a._budget-a._dealt;
     amt=Math.max(0,Math.round(amt)); a._dealt+=amt; totalDealt+=amt;
     const crit=a._crit&&!a._flairShown&&amt>0, nuke=a._nuke&&!a._flairShown&&amt>0; if(crit||nuke)a._flairShown=true;
-    if(a._ranged){ const pal=ELE_PAL[a._ele]||["#e89bff"]; bolt(a.x,a.y,boss.x,boss.y,pal[2]||pal[0]); }
+    if(a._ranged){ pxBolt(a.x,a.y,boss.x,boss.y,a._ele); }
     const apply=()=>{ if(done)return;
       hp=Math.max(floor,hp-amt); setBar();
       hurtBoss(); eleBurst(boss.x-boss.size*0.18,boss.y,a._ele);
@@ -3769,7 +3770,7 @@ async function playBossReplay(round){
       if(a._lunge>0)a._lunge-=dt; if(a._cd>0)a._cd-=dt;
       const dx=boss.x-a.x, dy=boss.y-a.y, d=Math.hypot(dx,dy)||0.01;
       a._facing=dx>=0?1:-1; a._aim=Math.atan2(dy,dx);
-      const range=a._ranged?112:(a.r+boss.r+6);
+      const range=a._ranged?120:(a.r+boss.r+6);
       if(a._ranged){
         if(d>range){ a.x+=dx/d*a._spd*dt; a.y+=dy/d*a._spd*dt; }
         else if(d<range*0.72){ a.x-=dx/d*a._spd*dt; a.y-=dy/d*a._spd*dt; }
