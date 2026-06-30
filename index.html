@@ -2691,6 +2691,7 @@ document.addEventListener("click",e=>{
   else if(act==="bossdispatch"){showDispatchPicker();}
   else if(act==="bosssend"){dispatchPet(t.dataset.iid);}
   else if(act==="bossresults"){showBossResults();}
+  else if(act==="bossleaderboard"){showBossLeaderboard();}
   else if(act==="bosswatch"){playBossReplay(bossLatestRound);}
   else if(act==="bossreplayskip"){ if(bossReplayCtl)bossReplayCtl.skip(); }
   else if(act==="bossreplayagain"){ const rd=bossReplayRound; bossClearTimers(); closeOverlay(); if(rd)playBossReplay(rd); }
@@ -3333,6 +3334,7 @@ function bossBoxHTML(){
       <div style="height:14px;border-radius:8px;background:#2a1430;overflow:hidden;border:1px solid #50204a"><i style="display:block;height:100%;width:${pctHp}%;background:linear-gradient(90deg,#ff5a55,#d640ff);transition:width .5s"></i></div>
       ${pendLine}
       ${bossWatchHTML()}
+      <button class="btn ghost" data-act="bossleaderboard" style="width:100%;margin-top:8px">📊 Event Standings</button>
       <div style="height:8px"></div>${action}`;
   }
   const won=ev.state==="defeated";
@@ -3427,6 +3429,33 @@ function grantBossReward(ev,myDmg,total,myRank,defeated){
   save(); statbar();
   return {px,dust,trophy,defeated};
 }
+function bossRankRowsHTML(rows, myId, medals, topN){
+  return rows.slice(0,topN||10).map((r,i)=>{
+    const me=r.user_id===myId, rank=(medals&&i<3)?['🥇','🥈','🥉'][i]:(i+1)+'.';
+    return `<div style="display:flex;justify-content:space-between;padding:4px 8px;border-radius:6px;${me?'background:rgba(214,64,255,.16)':''}"><span>${rank} ${bossEsc(r.username||'trainer')}${me?' (you)':''}${r.strikes?` <span class="muted" style="font-size:10px">·${r.strikes}🗡️</span>`:''}</span><span class="muted">${(r.damage||0).toLocaleString()}</span></div>`;
+  }).join("");
+}
+async function showBossLeaderboard(){
+  if(!bossEvent){ toast("No active event right now."); return; }
+  const ev=bossEvent, key=ev.event_key, myId=authUser&&authUser.id;
+  let rows=[]; try{ const {data}=await sbc.from("boss_contrib").select("user_id,username,damage,strikes").eq("event_key",key).order("damage",{ascending:false}).limit(50); rows=data||[]; }catch(e){}
+  let total=0; try{ const {data}=await sbc.rpc("event_total",{p_event_key:key}); total=data||0; }catch(e){}
+  if(!total)total=rows.reduce((s,r)=>s+(r.damage||0),0);
+  const myRank=rows.findIndex(r=>r.user_id===myId)+1;
+  const myDmg=(rows.find(r=>r.user_id===myId)||{}).damage||0;
+  const lbHTML=bossRankRowsHTML(rows, myId, true, 25);
+  const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
+    <div class="center" style="font-size:26px">📊</div>
+    <h2 class="title center" style="margin-bottom:2px">Cube Assault — Standings</h2>
+    <p class="center muted" style="font-size:12px;margin:0 0 8px">Cube at ${Math.max(0,(ev.hp_remaining||0)).toLocaleString()} / ${(ev.hp_max||0).toLocaleString()} HP${ev.state==='active'?` · ${bossTimeLeft(ev)}`:''}<br>Community damage so far: <b style="color:#e89bff">${total.toLocaleString()}</b></p>
+    <div class="ri-name center" style="margin:4px 0">Top Contributors</div>
+    <div style="max-height:300px;overflow:auto">${lbHTML||'<p class="center muted">No damage dealt yet — strikes resolve at dawn.</p>'}</div>
+    ${myId&&myRank>25?`<p class="center muted" style="font-size:12px;margin-top:6px">Your rank: #${myRank} · ${myDmg.toLocaleString()} dmg</p>`:(myId&&!myDmg?`<p class="center muted" style="font-size:12px;margin-top:6px">Your strikes count toward the board after the next dawn.</p>`:'')}
+    <p class="center muted" style="font-size:10px;margin-top:8px">Standings update each dawn, when the day's assault resolves.</p>
+    <button class="btn ghost" data-act="closeoverlay" style="width:100%;margin-top:8px">Close</button>
+  </div></div>`);
+  document.body.appendChild(ov);
+}
 async function showBossResults(){
   if(!bossEvent)return;
   const ev=bossEvent, key=ev.event_key, defeated=ev.state==="defeated";
@@ -3438,10 +3467,7 @@ async function showBossResults(){
   const mine=bossMe||rows.find(r=>r.user_id===myId)||null;
   const myDmg=mine?(mine.damage||0):0;
   const reward=grantBossReward(ev,myDmg,total,myRank,defeated);
-  const lbHTML=rows.slice(0,10).map((r,i)=>{
-    const me=r.user_id===myId, medal=(i<3&&defeated)?['🥇','🥈','🥉'][i]:(i+1)+'.';
-    return `<div style="display:flex;justify-content:space-between;padding:4px 8px;border-radius:6px;${me?'background:rgba(214,64,255,.16)':''}"><span>${medal} ${bossEsc(r.username||'trainer')}${me?' (you)':''}</span><span class="muted">${(r.damage||0).toLocaleString()}</span></div>`;
-  }).join("");
+  const lbHTML=bossRankRowsHTML(rows, myId, defeated, 10);
   const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
     <div class="center" style="font-size:30px">${defeated?'🎉':'🛡️'}</div>
     <h2 class="title center">${defeated?'The Cube Driven Back!':'The Cube Retreated'}</h2>
