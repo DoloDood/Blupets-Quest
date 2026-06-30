@@ -582,6 +582,9 @@ const CRAFT_COST=25;
 function petEffects(p){
   const e={atkPct:0,hpPct:0,crit:0,dodge:0,dmgAmp:0,lifesteal:0,statusPow:0,healPct:0,reducePct:0,spdPct:0};
   for(const s of (p.stones||[])){const k=STONE_KINDS[s.kind]; if(k)e[k.effect]+=k.vals[s.tier]||0;}
+  const v=vibeOf(p); // signature traits from the Blupet's vibe (HP/ATK/SPD applied separately in petStats)
+  e.crit+=v.crit||0; e.dodge+=v.dodge||0; e.lifesteal+=v.lifesteal||0;
+  e.statusPow+=v.statusPow||0; e.healPct+=v.healPct||0; e.reducePct+=v.reducePct||0;
   return e;
 }
 function stoneInfo(s){const k=STONE_KINDS[s.kind]||STONE_KINDS.mighty;
@@ -605,13 +608,75 @@ const ROLE_BUCKETS={
 const ROLE_OF=(()=>{const m={};for(const r in ROLE_BUCKETS)ROLE_BUCKETS[r].forEach(id=>m[id]=r);return id=>m[id]||"bruiser";})();
 /* ---- Vibes: the canonical 64 Blupets vibes (from BluKit /vibes). ---- */
 /* Vibe is the on-chain personality; here it also nudges HP / ATK / SPD (game-design layer). */
+/* One hand-authored nature per vibe (no more i%16 cycle). hp/atk/spd are
+   multipliers; the optional extra keys are SIGNATURE traits that fold into the
+   same effects bag combat reads from stones (crit/dodge/lifesteal/statusPow/
+   healPct/reducePct). Spread ~±20%; every strong plus is paired with a minus. */
 const VIBE_NATURES=[
-  {hp:1.00,atk:1.00,spd:1.00}, {hp:0.90,atk:1.12,spd:1.00}, {hp:1.12,atk:1.00,spd:0.92},
-  {hp:0.92,atk:1.00,spd:1.12}, {hp:1.00,atk:1.12,spd:0.92}, {hp:1.12,atk:0.92,spd:1.00},
-  {hp:1.00,atk:0.92,spd:1.12}, {hp:1.06,atk:1.08,spd:0.94}, {hp:0.94,atk:1.06,spd:1.08},
-  {hp:1.08,atk:0.94,spd:1.06}, {hp:1.08,atk:1.00,spd:0.98}, {hp:0.98,atk:1.00,spd:1.08},
-  {hp:1.00,atk:1.08,spd:0.98}, {hp:0.88,atk:1.10,spd:1.08}, {hp:1.16,atk:0.96,spd:0.90},
-  {hp:1.03,atk:1.03,spd:1.03},
+  /*0  Cheerful*/         {hp:1.06,atk:1.00,spd:1.06},
+  /*1  Grumpy*/          {hp:1.12,atk:1.08,spd:0.85, reducePct:0.05},
+  /*2  Sarcastic*/       {hp:0.96,atk:1.10,spd:1.02, crit:0.06},
+  /*3  Curious*/         {hp:0.90,atk:1.00,spd:1.20},
+  /*4  Wild*/            {hp:0.82,atk:1.24,spd:1.06, crit:0.05},
+  /*5  Confident*/       {hp:1.06,atk:1.10,spd:1.00},
+  /*6  Secretive*/       {hp:1.00,atk:1.02,spd:1.06, dodge:0.10},
+  /*7  Skeptical*/       {hp:1.02,atk:1.06,spd:0.98, crit:0.06},
+  /*8  Elegant*/         {hp:1.04,atk:1.00,spd:1.06, dodge:0.08},
+  /*9  Goofy*/           {hp:1.05,atk:1.05,spd:1.05},
+  /*10 Focused*/         {hp:0.96,atk:1.12,spd:0.96, crit:0.10},
+  /*11 Sleepy*/          {hp:1.14,atk:0.94,spd:0.82, dodge:0.06},
+  /*12 Playful*/         {hp:0.96,atk:1.00,spd:1.16},
+  /*13 Stoic*/           {hp:1.22,atk:0.92,spd:0.88, reducePct:0.06},
+  /*14 Dramatic*/        {hp:0.94,atk:1.14,spd:0.96, statusPow:0.20},
+  /*15 Gentle*/          {hp:1.10,atk:0.86,spd:1.00, healPct:0.18},
+  /*16 Based*/           {hp:1.08,atk:1.08,spd:0.96},
+  /*17 Nervous*/         {hp:0.90,atk:0.98,spd:1.16, dodge:0.10},
+  /*18 Mischievous*/     {hp:0.94,atk:1.08,spd:1.12, crit:0.05},
+  /*19 Loyal*/           {hp:1.18,atk:0.94,spd:0.92, reducePct:0.05},
+  /*20 Dreamy*/          {hp:0.96,atk:1.10,spd:0.98, statusPow:0.22},
+  /*21 Signal-Seeking*/  {hp:0.98,atk:1.08,spd:1.00, crit:0.08},
+  /*22 Rebellious*/      {hp:0.92,atk:1.18,spd:1.06},
+  /*23 Calm*/            {hp:1.10,atk:1.00,spd:0.98},
+  /*24 Awkward*/         {hp:0.96,atk:0.96,spd:1.08, dodge:0.10},
+  /*25 Bold*/            {hp:0.84,atk:1.22,spd:1.10, crit:0.05},
+  /*26 Moody*/           {hp:0.94,atk:1.12,spd:1.00, statusPow:0.18},
+  /*27 Sincere*/         {hp:1.06,atk:1.04,spd:1.00},
+  /*28 Witty*/           {hp:0.98,atk:1.08,spd:1.04, crit:0.08},
+  /*29 Lurker*/          {hp:1.00,atk:1.10,spd:1.00, crit:0.06, dodge:0.06},
+  /*30 Chaotic*/         {hp:0.88,atk:1.20,spd:1.10, crit:0.06},
+  /*31 Diamond-Handed*/  {hp:1.24,atk:0.90,spd:0.86, reducePct:0.06},
+  /*32 Jealous*/         {hp:0.88,atk:1.16,spd:1.02, lifesteal:0.10},
+  /*33 Protective*/      {hp:1.20,atk:0.92,spd:0.92, reducePct:0.06},
+  /*34 Impulsive*/       {hp:0.90,atk:1.12,spd:1.16},
+  /*35 Clever*/          {hp:0.98,atk:1.10,spd:1.00, crit:0.09},
+  /*36 Melancholic*/     {hp:1.08,atk:0.96,spd:0.94, statusPow:0.18},
+  /*37 Excitable*/       {hp:0.94,atk:1.04,spd:1.18},
+  /*38 Rugged*/          {hp:1.16,atk:1.02,spd:0.90, reducePct:0.05},
+  /*39 Zen*/             {hp:1.08,atk:1.00,spd:1.02, dodge:0.08},
+  /*40 Romantic*/        {hp:1.08,atk:0.88,spd:1.00, healPct:0.18},
+  /*41 Stubborn*/        {hp:1.22,atk:0.96,spd:0.84, reducePct:0.07},
+  /*42 Polite*/          {hp:1.06,atk:0.96,spd:1.00, healPct:0.10},
+  /*43 Serious*/         {hp:1.08,atk:1.10,spd:0.92},
+  /*44 Frenly*/          {hp:1.08,atk:0.90,spd:1.02, healPct:0.16},
+  /*45 Hopepilled*/      {hp:1.10,atk:1.00,spd:1.04, healPct:0.12},
+  /*46 Softhearted*/     {hp:1.12,atk:0.88,spd:0.98, healPct:0.18},
+  /*47 Terminally Online*/{hp:0.92,atk:1.02,spd:1.18, dodge:0.06},
+  /*48 Spicy*/           {hp:0.94,atk:1.16,spd:1.04, statusPow:0.15},
+  /*49 Humble*/          {hp:1.06,atk:1.06,spd:1.02},
+  /*50 Bossy*/           {hp:1.06,atk:1.12,spd:0.96, crit:0.04},
+  /*51 Lucky*/           {hp:1.00,atk:1.02,spd:1.04, crit:0.08, dodge:0.08},
+  /*52 Degen*/           {hp:0.80,atk:1.26,spd:1.10, crit:0.08},
+  /*53 Tender*/          {hp:1.10,atk:0.86,spd:1.00, healPct:0.20},
+  /*54 Prankish*/        {hp:0.94,atk:1.06,spd:1.14, crit:0.06},
+  /*55 Maxi*/            {hp:1.14,atk:1.10,spd:0.82},
+  /*56 Detached*/        {hp:0.98,atk:1.06,spd:1.02, dodge:0.08},
+  /*57 Bright*/          {hp:0.96,atk:1.06,spd:1.10, crit:0.06},
+  /*58 Gloomy*/          {hp:1.02,atk:1.08,spd:0.96, lifesteal:0.10},
+  /*59 Feisty*/          {hp:0.86,atk:1.18,spd:1.10, crit:0.05},
+  /*60 Odd*/             {hp:0.98,atk:1.08,spd:1.00, statusPow:0.22},
+  /*61 Dorky*/           {hp:1.02,atk:1.04,spd:1.06},
+  /*62 Sassy*/           {hp:0.96,atk:1.12,spd:1.04, statusPow:0.14},
+  /*63 Haunted*/         {hp:1.00,atk:1.06,spd:0.98, lifesteal:0.08, dodge:0.06},
 ];
 const VIBE_DATA=[
   ["Cheerful","Always finds the bright side, even if it has to squint."],
@@ -679,13 +744,15 @@ const VIBE_DATA=[
   ["Sassy","Answers with a raised eyebrow you can hear."],
   ["Haunted","Seems like it knows something it never wants to explain."],
 ];
-const VIBES=VIBE_DATA.map((d,i)=>({name:d[0], desc:d[1], ...VIBE_NATURES[i%VIBE_NATURES.length]}));
+const VIBES=VIBE_DATA.map((d,i)=>({name:d[0], desc:d[1], ...VIBE_NATURES[i]}));
 function vibeOf(p){ const i=(((p&&p.vibe)|0)%64+64)%64; return VIBES[i]||VIBES[0]; }
 function vibeName(p){ return vibeOf(p).name; }
 function vibeDesc(p){ return vibeOf(p).desc; }
 function vibeHint(p){ const v=vibeOf(p), out=[];
   const f=(m,l)=>{ if(m>=1.05)out.push("+"+l); else if(m<=0.95)out.push("−"+l); };
   f(v.hp,"HP"); f(v.atk,"ATK"); f(v.spd,"SPD");
+  if(v.crit)out.push("+crit"); if(v.dodge)out.push("+dodge"); if(v.lifesteal)out.push("+lifesteal");
+  if(v.statusPow)out.push("+status"); if(v.healPct)out.push("+heal"); if(v.reducePct)out.push("+armor");
   return out.length?out.join(" "):"Balanced"; }
 function petRole(p){ return (p&&p.role) || ROLE_OF(p.vibe); }
 const ELECOLOR={Heat:"#ff7a6b",Solar:"#ffce4a",Growth:"#74c85a",Aqua:"#54c9d9",Frost:"#5aa6f0",Arcane:"#a965e8",Shadow:"#7d7b86",Pale:"#cabfa8"};
