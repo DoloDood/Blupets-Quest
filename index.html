@@ -2149,7 +2149,7 @@ function startBlitz(iid){
       <div id="bzUp" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:#0b0d1ad9;border-radius:12px"></div>
     </div>
     <div class="arena-foot"><span class="muted" style="font-size:11px">press & steer anywhere · auto-fires</span>
-      <button class="btn ghost sm" data-act="closeoverlay">quit</button></div>
+      <button class="btn ghost sm" data-act="blitzquit">quit</button></div>
   </div></div>`);
   document.body.appendChild(ov);
   const cv=$("bzCv"), ctx=cv.getContext("2d");
@@ -2376,6 +2376,7 @@ function startBlitz(iid){
     if(!ended){ if(!paused)update(dt); if(!ended)draw(); }
     if(!ended)window._blitzRAF=requestAnimationFrame(loop);
   }
+  window._blitzEnd=end;  // quit button ends the round & banks progress just like dying
   window._blitzRAF=requestAnimationFrame(loop);
 }
 function showBlitzResult(score,best,kills,waveReached,px,dust,iid){
@@ -2866,6 +2867,7 @@ document.addEventListener("click",e=>{
   else if(act==="upgrade"){upgradeStone(t.dataset.sid);}
   else if(act==="craft"){craftStone(t.dataset.kind);}
   else if(act==="closeoverlay"){closeOverlay();render();}
+  else if(act==="blitzquit"){ if(window._blitzEnd){window._blitzEnd();} else {closeOverlay();render();} }
   else if(act==="music"){toggleMusic();}
   else if(act==="energy"){showEnergyInfo();}
   else if(act==="refillEnergy"){refillEnergy();}
@@ -2876,6 +2878,7 @@ function closeOverlay(){
   if(evoTimer){clearTimeout(evoTimer);evoTimer=null;}
   if(energyTimer){clearInterval(energyTimer);energyTimer=null;}
   if(window._blitzRAF){cancelAnimationFrame(window._blitzRAF);window._blitzRAF=null;}
+  window._blitzEnd=null;
   if(currentTrack==="battle"||currentTrack==="arcade")playTrack("main");
   document.querySelectorAll(".overlay").forEach(o=>o.remove());
   document.querySelectorAll(".dmgpop").forEach(o=>o.remove());
