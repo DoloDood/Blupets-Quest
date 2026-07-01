@@ -249,6 +249,11 @@
   .pet-art .ring{position:absolute;inset:-3px;border-radius:14px;border:3px solid var(--line)}
   .pet-art .bgc{position:absolute;inset:0;border-radius:12px;opacity:.18}
   .pet-art img{position:relative;border-radius:12px}
+  .pet-art.ascended .ascend-ring{position:absolute;inset:-4px;border-radius:15px;pointer-events:none;
+    border:2px solid #ffd24a;box-shadow:0 0 8px 2px #ffd24a88, inset 0 0 6px #ffe9a0aa;
+    animation:ascendGlow 1.8s ease-in-out infinite}
+  @keyframes ascendGlow{0%,100%{opacity:.55;box-shadow:0 0 6px 1px #ffd24a77, inset 0 0 5px #ffe9a099}
+    50%{opacity:1;box-shadow:0 0 13px 4px #ffd24acc, inset 0 0 8px #fff3c0}}
 
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
@@ -410,6 +415,7 @@
   #waveTag{margin-bottom:2px}
   .proj{position:absolute;transform:translate(-50%,-50%);transition:transform .22s linear;z-index:220;pointer-events:none;image-rendering:pixelated;filter:drop-shadow(0 0 3px #0004)}
   .proj .pxcore{display:inline-block;line-height:0;image-rendering:pixelated;animation:projspin .55s linear infinite}
+  .proj .pxglow{position:absolute;left:50%;top:50%;width:16px;height:16px;border-radius:50%;transform:translate(-50%,-50%);z-index:-1;pointer-events:none}
   @keyframes projspin{to{transform:rotate(360deg)}}
   .impact{position:absolute;width:14px;height:14px;border-radius:50%;transform:translate(-50%,-50%) scale(.4);
     z-index:55;pointer-events:none;opacity:.9;animation:impactpop .34s ease-out forwards}
@@ -528,6 +534,12 @@ const FAM_BY_ID=Object.fromEntries(FAM.map(f=>[f.id,f]));
 function famElement(fam){ // element from first color of pair's pure family
   const c=BASE.findIndex(b=>b.name===fam.pair[0]); return ELEMENTS[c]||"Pale";
 }
+/* ---- merge: two base colors -> the family (color tree) they resolve to ----
+   pairs are unordered; same-color pair = one of the 8 pure trees, two
+   different colors = one of the 28 mixed trees. Together = all 36. */
+const FAM_BY_PAIR=(()=>{const m={};FAM.forEach(f=>{m[[...f.pair].sort().join("|")]=f;});return m;})();
+function familyForColors(cA,cB){ return FAM_BY_PAIR[[cA,cB].sort().join("|")]||null; }
+function famColor(p){ const f=FAM_BY_ID[p.familyId]; return (f&&f.hex)||"#ff7a6b"; }
 
 /* ---- art urls ---- */
 let ASSET_KEY={}; // name -> png url (filled at boot, best effort)
@@ -535,7 +547,7 @@ function artT1(colorName,size){return `${API}/render.png?key=T1_${colorName.toUp
 function artForm(fam,tier,formIdx,vibe,size){
   const nm = tier===2?fam.t2[formIdx] : tier===3?fam.t3[formIdx] : fam.t4;
   if(ASSET_KEY[nm]) return ASSET_KEY[nm].replace(/size=\d+/,"size="+(size||IMG));
-  return `${API}/render.png?stage=${tier}&lineage=${fam.id}&form=${formIdx||0}&vibe=${vibe||0}&size=${size||IMG}`;
+  return `${API}/render.png?stage=${Math.min(tier,4)}&lineage=${fam.id}&form=${formIdx||0}&vibe=${vibe||0}&size=${size||IMG}`;
 }
 function petArtURL(p,size){
   if(p.tier===1) return artT1(p.colorName,size);
@@ -556,7 +568,7 @@ function chance(p){return Math.random()<p;}
 
 /* ---- stats / leveling ---- */
 const EVOLVE_AT={1:8,2:18,3:30}; // level needed to evolve from this tier
-const TIER_BASE={1:{hp:55,atk:14},2:{hp:95,atk:24},3:{hp:150,atk:38},4:{hp:230,atk:56}};
+const TIER_BASE={1:{hp:55,atk:14},2:{hp:95,atk:24},3:{hp:150,atk:38},4:{hp:230,atk:56},5:{hp:340,atk:82}};
 const STONE_KINDS={
   mighty:  {name:"Mighty",  icon:"⚔️", effect:"atkPct",   label:"ATK",          color:"#ff7a6b", vals:{basic:.08,bronze:.15,silver:.24,gold:.34}},
   sturdy:  {name:"Sturdy",  icon:"🛡️", effect:"hpPct",    label:"HP",           color:"#3a8bf0", vals:{basic:.08,bronze:.15,silver:.24,gold:.34}},
@@ -773,10 +785,10 @@ function stoneSlots(p){return p.tier>=3?2:1;}
 function petDisplayName(p){
   if(p.tier===1) return p.colorName+" Blupet";
   const f=FAM_BY_ID[p.familyId];
-  return p.tier===2?f.t2[p.formIdx] : p.tier===3?f.t3[p.formIdx] : f.t4;
+  return p.tier===2?f.t2[p.formIdx] : p.tier===3?f.t3[p.formIdx] : p.tier>=5 ? f.t4+"+" : f.t4;
 }
 function tierLabel(t){return "T"+t;}
-function tierColor(t){return ["#9fb4d6","#7fb3f0","#56cf8c","#ffb43e","#ff7a6b"][t]||"#999";}
+function tierColor(t){return ["#9fb4d6","#7fb3f0","#56cf8c","#ffb43e","#ff7a6b","#ffd24a"][t]||"#999";}
 
 /* ---- make a pet ---- */
 let IID=1;
@@ -790,15 +802,59 @@ function makePet(colorName,level,vibe,role){
   return {iid:"p"+(IID++), colorName, familyId:fam.id, tier:1, formIdx:0,
     vibe:(vibe==null?rint(64):vibe), role:(role||pick(Object.keys(ROLES))), level:level||1, xp:0, stones:[], bond:0};
 }
-function canEvolve(p){return p.tier<4 && p.level>=EVOLVE_AT[p.tier];}
+/* T1->T2 is now a MERGE (see below); solo evolve covers T2->T3->T4 only. */
+function canEvolve(p){return p.tier>=2 && p.tier<4 && p.level>=EVOLVE_AT[p.tier];}
 function evolvePet(p){
   if(!canEvolve(p))return false;
   const fam=FAM_BY_ID[p.familyId];
-  if(p.tier===1){p.tier=2;p.formIdx=rint(fam.t2.length);}
-  else if(p.tier===2){p.tier=3;p.formIdx=rint(fam.t3.length);}
+  if(p.tier===2){p.tier=3;p.formIdx=rint(fam.t3.length);}
   else if(p.tier===3){p.tier=4;p.formIdx=0;}
   markDex(p.familyId,p.tier,p.formIdx);
   return true;
+}
+
+/* ---- MERGE (T1 -> T2): two Lv8 base-color Blupets fuse; their two colors
+   decide which of the 36 color trees the result falls into. Both are
+   consumed; the PRIMARY passes on its vibe/trait. Equipped stones return to
+   inventory (they stay in S.stones and simply become un-referenced). ---- */
+function canMerge(p){ return p.tier===1 && p.level>=EVOLVE_AT[1]; }
+function mergePartners(p){ return S.pets.filter(x=>x.iid!==p.iid && canMerge(x)); }
+function mergePets(primaryIid, secondaryIid){
+  const a=S.pets.find(x=>x.iid===primaryIid), b=S.pets.find(x=>x.iid===secondaryIid);
+  if(!a||!b||a===b) return null;
+  if(!canMerge(a)||!canMerge(b)) return null;
+  const fam=familyForColors(a.colorName,b.colorName);
+  if(!fam) return null;
+  const result={ iid:"p"+(IID++), colorName:a.colorName, familyId:fam.id, tier:2,
+    formIdx:rint(fam.t2.length), vibe:a.vibe, role:a.role||ROLE_OF(a.vibe),
+    level:EVOLVE_AT[1], xp:0, stones:[], bond:a.bond||0 };
+  const wasParty = S.party.includes(a.iid)||S.party.includes(b.iid);
+  S.party = S.party.filter(id=>id!==a.iid && id!==b.iid);
+  S.pets  = S.pets.filter(x=>x.iid!==a.iid && x.iid!==b.iid);
+  S.pets.push(result);
+  if(wasParty && S.party.length<3) S.party.push(result.iid);
+  markDex(result.familyId,result.tier,result.formIdx);
+  return result;
+}
+
+/* ---- ASCEND (T4 -> T5): merge two final-form Blupets of the SAME family
+   into a Tier-5 ascended form. Same art + a "+" on the name + a glow ring.
+   Both consumed; primary passes vibe/trait and keeps its level. ---- */
+function canAscend(p){ return p.tier===4 && ascendPartners(p).length>0; }
+function ascendPartners(p){ return S.pets.filter(x=>x.iid!==p.iid && x.tier===4 && x.familyId===p.familyId); }
+function ascendPets(primaryIid, secondaryIid){
+  const a=S.pets.find(x=>x.iid===primaryIid), b=S.pets.find(x=>x.iid===secondaryIid);
+  if(!a||!b||a===b) return null;
+  if(a.tier!==4||b.tier!==4||a.familyId!==b.familyId) return null;
+  const result={ iid:"p"+(IID++), colorName:a.colorName, familyId:a.familyId, tier:5,
+    formIdx:0, vibe:a.vibe, role:a.role||ROLE_OF(a.vibe),
+    level:a.level, xp:a.xp||0, stones:[], bond:a.bond||0 };
+  const wasParty = S.party.includes(a.iid)||S.party.includes(b.iid);
+  S.party = S.party.filter(id=>id!==a.iid && id!==b.iid);
+  S.pets  = S.pets.filter(x=>x.iid!==a.iid && x.iid!==b.iid);
+  S.pets.push(result);
+  if(wasParty && S.party.length<3) S.party.push(result.iid);
+  return result;
 }
 function gainXP(p,amt){
   p.xp+=amt;
@@ -981,6 +1037,7 @@ function enemyObj(name,el,level,tier,art,isBoss,familyId,formIdx,roleKey){
   const hp=Math.round(b.hp*(1+(level-1)*0.09)*hm*R.hpM);
   const atk=Math.round(b.atk*(1+(level-1)*0.08)*am*R.atkM);
   return {name,ele:el,level,tier,art,isBoss,familyId,formIdx,hp,maxhp:hp,atk,iid:"e"+(EID++),
+    col:((FAM_BY_ID[familyId]||{}).hex)||ELECOLOR[el]||"#ff7a6b",
     role:roleKey||"bruiser",range:R.range,reduce:R.reduce,dodge:R.dodge,healer:R.heal>0,critBonus:R.crit,
     spdM:R.spdM,sizeM:R.sizeM,side:"foe"};
 }
@@ -989,6 +1046,7 @@ function enemyObj(name,el,level,tier,art,isBoss,familyId,formIdx,roleKey){
 function buildFighter(p){
   const s=petStats(p); const rk=petRole(p); const R=ROLES[rk]; const e=petEffects(p);
   return {iid:p.iid,name:petDisplayName(p),ele:famElement(FAM_BY_ID[p.familyId]),tier:p.tier,
+    col:famColor(p),
     art:petArtURL(p,72),hp:s.hp,maxhp:s.hp,atk:s.atk,level:p.level,side:"ally",
     role:rk,range:R.range,reduce:R.reduce+e.reducePct,dodge:R.dodge+e.dodge,healer:R.heal>0,
     critBonus:R.crit+e.crit,dmgAmp:e.dmgAmp,lifesteal:e.lifesteal,spdM:R.spdM*vibeOf(p).spd*(1+e.spdPct),sizeM:R.sizeM,
@@ -1122,8 +1180,9 @@ function esc(s){return (s+"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":
 function h(html){const t=document.createElement("template");t.innerHTML=html.trim();return t.content.firstChild;}
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(t._tm);t._tm=setTimeout(()=>t.classList.remove("show"),1700);}
 function petArtHTML(p,size){const el=famElement(FAM_BY_ID[p.familyId]);const c=FAM_BY_ID[p.familyId].hex;
-  return `<div class="pet-art" style="width:${size}px;height:${size}px">
-    <div class="bgc" style="background:${c}"></div>
+  const asc=(p.tier>=5);
+  return `<div class="pet-art${asc?' ascended':''}" style="width:${size}px;height:${size}px">
+    <div class="bgc" style="background:${c}"></div>${asc?'<div class="ascend-ring"></div>':''}
     <img src="${petArtURL(p,size*2)}" width="${size}" height="${size}" alt="${petDisplayName(p)}" loading="lazy" onerror="this.style.opacity=0">
   </div>`;}
 function statbar(){
@@ -1764,12 +1823,13 @@ function vPets(){
   const rest=S.pets.filter(p=>!S.party.includes(p.iid));
   const ordered=[...party,...rest];
   const items=ordered.map(p=>{
-    const inParty=S.party.includes(p.iid); const ev=canEvolve(p);
+    const inParty=S.party.includes(p.iid); const ev=canEvolve(p); const mg=canMerge(p); const asc=canAscend(p);
+    const readyBadge = mg?'<span style="color:#56cf8c">🧬merge!</span>' : asc?'<span style="color:#e0a020">✦ascend!</span>' : ev?'<span style="color:#ff7a6b">✦evolve!</span>' : '';
     const need=xpForLevel(p.level+1); const st=petStats(p);
     return `<div class="roster-item ${inParty?'inparty':''}" data-act="petdetail" data-iid="${p.iid}">
       ${petArtHTML(p,56)}
       <div style="flex:1;min-width:0">
-        <div class="ri-name">${petDisplayName(p)} ${inParty?'<span class="tag" style="border-color:#3a8bf0;color:#3a8bf0">★ team</span>':''} ${ev?'<span style="color:#ff7a6b">✦evolve!</span>':''}</div>
+        <div class="ri-name">${petDisplayName(p)} ${inParty?'<span class="tag" style="border-color:#3a8bf0;color:#3a8bf0">★ team</span>':''} ${readyBadge}</div>
         <div class="ri-meta">
           <span class="tier-pill" style="background:${tierColor(p.tier)}">${tierLabel(p.tier)}</span>
           <span class="tag" style="border-color:${ROLES[petRole(p)].color}99;color:${ROLES[petRole(p)].color}">${ROLES[petRole(p)].tag} ${ROLES[petRole(p)].name}</span>
@@ -1831,7 +1891,11 @@ function petDetail(iid){
     return `<button class="btn ghost sm" style="margin:3px 3px 0;border-color:${i.color}88;color:${i.color}" data-act="eqstone" data-iid="${p.iid}" data-sid="${s.id}">${i.icon} ${i.tier} ${i.text}${g.count>1?` ×${g.count}`:""}</button>`;
   }).join("");
   const trainCost=10+p.level*3;
-  const path = p.tier<4 ? `Next: ${p.tier===1?'one of '+fam.t2.join(", "):p.tier===2?'one of '+fam.t3.join(", "):fam.t4}` : "Final form! ✦";
+  const path = p.tier===1 ? `Merge at Lv ${EVOLVE_AT[1]} → two colors pick a tree`
+             : p.tier===2 ? `Next: one of ${fam.t3.join(", ")}`
+             : p.tier===3 ? `Next: ${fam.t4}`
+             : p.tier===4 ? `Ascend two ${fam.t4} → ${fam.t4}+ (T5)`
+             : "Ascended final form ✦";
   const html=`<div class="overlay" data-dismiss="1"><div class="battle">
     <div class="center">${petArtHTML(p,110)}</div>
     <h2 class="title center" style="margin-top:8px">${petDisplayName(p)}</h2>
@@ -1852,8 +1916,22 @@ function petDetail(iid){
       <button class="btn ${inParty?'coral':'blu'}" data-act="toggleparty" data-iid="${p.iid}">${inParty?'Remove from team':'Add to team'}</button>
       <button class="btn ghost" data-act="train" data-iid="${p.iid}" ${S.pixels>=trainCost?'':'disabled'}>Train +XP (✦${trainCost})</button>
     </div>
-    ${ev?`<div style="height:10px"></div><button class="btn mint" data-act="evolve" data-iid="${p.iid}">✦ EVOLVE to ${p.tier===1?'T2':p.tier===2?'T3':'T4'}!</button>`:
-       (p.tier<4?`<p class="muted center" style="margin-top:10px">Reach Lv ${EVOLVE_AT[p.tier]} to evolve (currently ${p.level}).</p>`:"")}
+    ${p.tier===1
+        ? (canMerge(p)
+            ? `<div style="height:10px"></div><button class="btn mint" data-act="merge" data-iid="${p.iid}">🧬 MERGE — choose a partner</button>
+               <p class="muted center" style="margin:6px 0 0;font-size:11px">Two Lv ${EVOLVE_AT[1]} Blupets fuse into one — their colors pick the tree.</p>`
+            : `<p class="muted center" style="margin-top:10px">Reach Lv ${EVOLVE_AT[1]} to <b>merge</b> (currently ${p.level}).</p>`)
+      : p.tier<4
+        ? (canEvolve(p)
+            ? `<div style="height:10px"></div><button class="btn mint" data-act="evolve" data-iid="${p.iid}">✦ EVOLVE to ${p.tier===2?'T3':'T4'}!</button>`
+            : `<p class="muted center" style="margin-top:10px">Reach Lv ${EVOLVE_AT[p.tier]} to evolve (currently ${p.level}).</p>`)
+      : p.tier===4
+        ? (canAscend(p)
+            ? `<div style="height:10px"></div><button class="btn coral" data-act="ascend" data-iid="${p.iid}">✦ ASCEND — ${esc(fam.t4)}+ (T5)</button>
+               <p class="muted center" style="margin:6px 0 0;font-size:11px">Fuse with another final-form ${esc(fam.name)} to ascend.</p>`
+            : `<p class="muted center" style="margin-top:10px">✦ Final form. Raise a second <b>${esc(fam.t4)}</b> to Tier 4 to ascend it into <b>${esc(fam.t4)}+</b> (T5).</p>`)
+      : `<p class="muted center" style="margin-top:10px;color:#e0a020;font-weight:700">✦ Ascended — ${esc(fam.t4)}+ is a Tier-5 final form.</p>`
+    }
     <div class="card tint" style="margin-top:12px">
       <div class="ri-name">💎 Stone Slots (${eqStones.length}/${slots})</div>
       ${eqStones.map(s=>{const i=stoneInfo(s);return `<div class="reward"><span style="color:${i.color}">${i.icon} ${i.name} ${i.tier} · ${i.text}</span>
@@ -2052,7 +2130,7 @@ function startBlitz(iid){
     maxhp:Math.max(40,Math.round(f.maxhp)), hp:Math.max(40,Math.round(f.maxhp)),
     dmg:Math.max(4,Math.round(f.atk*(1+(f.dmgAmp||0)))),
     speed:95*(f.spdM||1), fireRate:1.7*(0.7+0.3*(f.spdM||1)),
-    ele:f.ele, glow:ELEC[0], mid:ELEC[1], dark:ELEC[2],
+    ele:f.ele, glow:(f.col||ELEC[0]), mid:ELEC[1], dark:ELEC[2],
     lifesteal:(f.lifesteal||0), multishot:1, pierce:0, projR:4.6, fireCd:0, hurtCd:0 };
   const img=new Image(); let imgReady=false; img.onload=()=>imgReady=true; img.src=petArtURL(pet,72);
   let enemies=[], projs=[], eprojs=[], parts=[];
@@ -2412,10 +2490,10 @@ function playExpedition(zone){
     stage.appendChild(d); setTimeout(()=>{d.remove();},340);
   }
   function spawnProjectile(u,t,ele){
-    const pal=ELE_PAL[ele]||ELE_PAL.Arcane;
+    const col=(u&&u.col)||((ELE_PAL[ele]||ELE_PAL.Arcane)[1]);
     const d=document.createElement("div"); d.className="proj";
-    d.style.filter="drop-shadow(0 0 4px "+(pal[1]||pal[0])+")";
-    d.innerHTML='<span class="pxcore">'+(PROJ_SVG[ele]||PROJ_SVG.Heat)+'</span>';
+    d.style.filter="drop-shadow(0 0 5px "+col+") drop-shadow(0 0 2px "+col+")";
+    d.innerHTML='<span class="pxglow" style="background:radial-gradient(circle,'+col+'cc 0%,'+col+'00 70%)"></span><span class="pxcore">'+(PROJ_SVG[ele]||PROJ_SVG.Heat)+'</span>';
     d.style.left=u.x+"px"; d.style.top=u.y+"px";
     stage.appendChild(d);
     const dx=(t.x-u.x).toFixed(0), dy=(t.y-u.y).toFixed(0);
@@ -2423,9 +2501,10 @@ function playExpedition(zone){
     setTimeout(()=>d.remove(),300);
   }
   const ELE_EMO={Heat:"🔥",Solar:"☀️",Growth:"🍃",Aqua:"💧",Frost:"❄️",Arcane:"🔮",Shadow:"🌑",Pale:"☁️"};
-  function spawnEleBurst(t,el,small){
+  function spawnEleBurst(t,el,small,col){
     if(fast||!stage)return;
-    const pal=ELE_PAL[el]||["#ffffff","#cccccc"], up=(el==="Heat"||el==="Solar");
+    const base=ELE_PAL[el]||["#ffffff","#cccccc"];
+    const pal=col?[col,col,base[0]]:base, up=(el==="Heat"||el==="Solar");
     const n=small?5:9;
     for(let i=0;i<n;i++){
       const p=document.createElement("div"); p.className="epx";
@@ -2463,7 +2542,7 @@ function playExpedition(zone){
     if(!fast){ sfx("hit");
       popText(t, dmg+(crit?"!":""), crit?"#ffd23d":em>1?"#9fe3ff":"#fff", crit);
       t.el.classList.add("uhurt"); setTimeout(()=>{if(t.el)t.el.classList.remove("uhurt");},170);
-      spawnEleBurst(t, u.ele, !!aoe); }
+      spawnEleBurst(t, u.ele, !!aoe, u.col); }
     if(t.hp<=0 && !t.dead) killUnit(t);
     // Aqua splash to a nearby enemy of the target
     if(fx && fx.aoe && !aoe){ const others=alive(t.side).filter(x=>x!==t); const n=others.length?nearest(t,others):null; if(n)dealDamage(u,n,fx.aoe); }
@@ -2778,6 +2857,10 @@ document.addEventListener("click",e=>{
   else if(act==="release"){releasePet(t.dataset.iid);}
   else if(act==="train"){trainPet(t.dataset.iid);}
   else if(act==="evolve"){doEvolve(t.dataset.iid);}
+  else if(act==="merge"){mergePicker(t.dataset.iid);}
+  else if(act==="domerge"){doMerge(t.dataset.iid,t.dataset.bid);}
+  else if(act==="ascend"){ascendPicker(t.dataset.iid);}
+  else if(act==="doascend"){doAscend(t.dataset.iid,t.dataset.bid);}
   else if(act==="eqstone"){equipStone(t.dataset.iid,t.dataset.sid);}
   else if(act==="unstone"){unequipStone(t.dataset.iid,t.dataset.sid);}
   else if(act==="crush"){crushStone(t.dataset.sid);}
@@ -2857,6 +2940,74 @@ function trainPet(iid){const p=S.pets.find(x=>x.iid===iid);if(!p)return;
   else toast("+"+gain+" XP");
   closeOverlay();petDetail(iid);statbar();
 }
+function doMerge(aIid,bIid){
+  const a=S.pets.find(x=>x.iid===aIid), b=S.pets.find(x=>x.iid===bIid);
+  if(!a||!b){toast("Blupet not found");return;}
+  const beforeArt=petArtURL(a,240);
+  const res=mergePets(aIid,bIid);
+  if(res){ bumpStat("evolutions"); questProgress("evolve"); logActivity("evolve",petDisplayName(res));
+    save(); closeOverlay(); showEvolveAnim(res,beforeArt,"merge"); }
+  else toast("Can't merge those two");
+}
+function mergePicker(iid){
+  const a=S.pets.find(x=>x.iid===iid); if(!a||!canMerge(a))return;
+  const parts=mergePartners(a);
+  const rows = parts.length ? parts.map(b=>{
+    const fam=familyForColors(a.colorName,b.colorName); const pure=a.colorName===b.colorName;
+    return `<div class="roster-item" data-act="domerge" data-iid="${a.iid}" data-bid="${b.iid}" style="cursor:pointer">
+      ${petArtHTML(b,48)}
+      <div style="flex:1;min-width:0">
+        <div class="ri-name">${petDisplayName(b)} <span class="muted" style="font-family:var(--body);font-weight:700">Lv ${b.level}</span></div>
+        <div class="ri-meta">
+          <span class="muted">${a.colorName} + ${b.colorName} →</span>
+          <span class="tag" style="border-color:${fam.hex}99;color:${fam.hex}">${ELEMOJI[famElement(fam)]} ${fam.name}${pure?" · pure":""}</span>
+        </div>
+      </div>
+      <div style="font-size:20px;align-self:center;color:#56cf8c">➜</div>
+    </div>`;
+  }).join("") : `<div class="card center muted">No other Lv ${EVOLVE_AT[1]} base Blupets to merge with yet. Raise a second base-color Blupet to Lv ${EVOLVE_AT[1]}.</div>`;
+  const html=`<div class="overlay" data-dismiss="1"><div class="battle">
+    <h2 class="title center">🧬 Merge ${esc(petDisplayName(a))}</h2>
+    <div class="center" style="margin:6px 0">${petArtHTML(a,72)}</div>
+    <p class="center muted" style="font-size:12px">Pick a partner — <b>both are consumed</b>. <b>${esc(petDisplayName(a))}</b> is the primary and passes on its <b style="color:#8a5cc0">✨ ${vibeName(a)}</b> vibe. The two colors decide which tree the result falls into.</p>
+    <div style="max-height:300px;overflow-y:auto;margin-top:6px">${rows}</div>
+    <button class="btn ghost" data-act="closeoverlay" style="margin-top:10px">cancel</button>
+  </div></div>`;
+  document.body.appendChild(h(html));
+}
+function doAscend(aIid,bIid){
+  const a=S.pets.find(x=>x.iid===aIid), b=S.pets.find(x=>x.iid===bIid);
+  if(!a||!b){toast("Blupet not found");return;}
+  const beforeArt=petArtURL(a,240);
+  const res=ascendPets(aIid,bIid);
+  if(res){ bumpStat("evolutions"); questProgress("evolve"); logActivity("evolve",petDisplayName(res));
+    save(); closeOverlay(); showEvolveAnim(res,beforeArt,"ascend"); }
+  else toast("Both must be the same final form");
+}
+function ascendPicker(iid){
+  const a=S.pets.find(x=>x.iid===iid); if(!a||a.tier!==4)return;
+  const fam=FAM_BY_ID[a.familyId];
+  const parts=ascendPartners(a);
+  const rows = parts.length ? parts.map(b=>{
+    return `<div class="roster-item" data-act="doascend" data-iid="${a.iid}" data-bid="${b.iid}" style="cursor:pointer">
+      ${petArtHTML(b,48)}
+      <div style="flex:1;min-width:0">
+        <div class="ri-name">${petDisplayName(b)} <span class="muted" style="font-family:var(--body);font-weight:700">Lv ${b.level}</span></div>
+        <div class="ri-meta"><span class="muted">→</span>
+          <span class="tag" style="border-color:#ffd24a;color:#e0a020">✦ ${fam.t4}+ (T5)</span></div>
+      </div>
+      <div style="font-size:20px;align-self:center;color:#e0a020">➜</div>
+    </div>`;
+  }).join("") : `<div class="card center muted">No other final-form ${esc(fam.name)} to ascend with. Raise a second <b>${esc(fam.t4)}</b> to Tier 4.</div>`;
+  const html=`<div class="overlay" data-dismiss="1"><div class="battle">
+    <h2 class="title center">✦ Ascend ${esc(petDisplayName(a))}</h2>
+    <div class="center" style="margin:6px 0">${petArtHTML(a,72)}</div>
+    <p class="center muted" style="font-size:12px">Fuse two final-form ${esc(fam.name)} into <b>${esc(fam.t4)}+</b>, a Tier-5 ascended form. <b>Both are consumed</b>; <b>${esc(petDisplayName(a))}</b> passes on its vibe and keeps its level.</p>
+    <div style="max-height:300px;overflow-y:auto;margin-top:6px">${rows}</div>
+    <button class="btn ghost" data-act="closeoverlay" style="margin-top:10px">cancel</button>
+  </div></div>`;
+  document.body.appendChild(h(html));
+}
 function doEvolve(iid){const p=S.pets.find(x=>x.iid===iid);if(!p)return;
   const beforeArt=petArtURL(p,240);
   if(evolvePet(p)){bumpStat("evolutions");questProgress("evolve");logActivity("evolve",petDisplayName(p));save();closeOverlay();showEvolveAnim(p,beforeArt);} }
@@ -2898,17 +3049,20 @@ function showCookReveal(p){
   setTimeout(()=>{const s=$("silho");if(s)s.classList.add("reveal");const n=$("revealName");if(n)n.style.opacity=1;sfx("reveal");},700);
   statbar();
 }
-function showEvolveAnim(p, beforeArt){
+function showEvolveAnim(p, beforeArt, kind){
   const afterArt=petArtURL(p,240);
   const fam=FAM_BY_ID[p.familyId];
+  const cap = kind==="merge" ? {tag:"🧬 Merged! 🧬", line:`Fused into a ${tierLabel(p.tier)} ${fam.name}!`}
+            : kind==="ascend"? {tag:"✦ Ascended! ✦", line:`Ascended into ${petDisplayName(p)} — a Tier-5 form!`}
+            : {tag:"✦ Evolution! ✦", line:`Evolved into a ${tierLabel(p.tier)} ${fam.name}!`};
   const ov=h(`<div class="overlay"><div class="evo-stage">
     <div class="evo-rays"></div>
     <img id="evoImg" class="evo-pet evo-sil" src="${beforeArt}" width="200" height="200" onerror="this.style.opacity=0">
     <div class="evo-flash" id="evoFlash"></div>
     <div class="evo-cap" id="evoCap">
-      <div class="wave-tag">✦ Evolution! ✦</div>
+      <div class="wave-tag">${cap.tag}</div>
       <h2 class="title" style="margin:6px 0">${petDisplayName(p)}!</h2>
-      <p class="muted" style="margin:0 0 10px">Evolved into a ${tierLabel(p.tier)} ${fam.name}!</p>
+      <p class="muted" style="margin:0 0 10px">${cap.line}</p>
       <button class="btn mint" data-act="closeoverlay">Amazing!</button>
     </div></div></div>`);
   document.body.appendChild(ov);
@@ -3466,6 +3620,7 @@ function showDispatchPicker(){
 function strikeSnapshot(p){
   const f=buildFighter(p);
   return { name:petDisplayName(p), art:petArtURL(p,72), ele:famElement(FAM_BY_ID[p.familyId]),
+    col:famColor(p),
     role:f.role, level:p.level, tier:p.tier, power:petPower(p) };
 }
 async function dispatchPet(iid){
@@ -3653,10 +3808,11 @@ async function playBossReplay(round){
   const allies=visStr.map((s,i)=>{
     const snap=s.snapshot||{}, roll=s.roll||snap.roll||{};
     const tier=Math.min(4,Math.max(1,snap.tier||1)), level=snap.level||1, role=snap.role||"bruiser";
-    const f={art:snap.art||"", tier, role, ele:snap.ele||"Arcane", level, sizeM:0.86, spdM:1};
+    const f={art:snap.art||"", tier, role, ele:snap.ele||"Arcane", level, sizeM:0.86, spdM:1,
+      col: snap.col || ((ELE_PAL[snap.ele||"Arcane"]||ELE_PAL.Arcane)[1])};
     const u=makeUnit(f,"ally",i,VIS);
     u.x=20+rng()*46; u.y=Math.round(STAGE_H*(i+1)/(VIS+1));
-    u._ranged=(role==="caster"||role==="mender"); u._ele=f.ele; u._facing=1; u._lunge=0; u._aim=0;
+    u._ranged=(role==="caster"||role==="mender"); u._ele=f.ele; u._col=f.col; u._facing=1; u._lunge=0; u._aim=0;
     u._spd=28+tier*4+level*0.25+(role==="skirmisher"?14:0);
     u._atkInt=(role==="skirmisher"?0.55:role==="guardian"?0.95:role==="mender"?0.9:0.72)+rng()*0.15;
     u._cd=rng()*0.5;
@@ -3698,9 +3854,9 @@ async function playBossReplay(round){
     d.style.left=fx+"px"; d.style.top=fy+"px"; stage.appendChild(d);
     const dx=(tx-fx).toFixed(0), dy=(ty-fy).toFixed(0);
     requestAnimationFrame(()=>{ d.style.transform=`translate(-50%,-50%) translate(${dx}px,${dy}px)`; }); later(260,()=>d.remove()); }
-  function pxBolt(fx,fy,tx,ty,ele){ const pal=ELE_PAL[ele]||ELE_PAL.Arcane;
-    const d=document.createElement("div"); d.className="proj"; d.style.filter="drop-shadow(0 0 4px "+(pal[1]||pal[0])+")";
-    d.innerHTML='<span class="pxcore">'+(PROJ_SVG[ele]||PROJ_SVG.Arcane)+'</span>';
+  function pxBolt(fx,fy,tx,ty,ele,col){ const pal=ELE_PAL[ele]||ELE_PAL.Arcane; const g=col||(pal[1]||pal[0]);
+    const d=document.createElement("div"); d.className="proj"; d.style.filter="drop-shadow(0 0 5px "+g+") drop-shadow(0 0 2px "+g+")";
+    d.innerHTML='<span class="pxglow" style="background:radial-gradient(circle,'+g+'cc 0%,'+g+'00 70%)"></span><span class="pxcore">'+(PROJ_SVG[ele]||PROJ_SVG.Arcane)+'</span>';
     d.style.left=fx+"px"; d.style.top=fy+"px"; stage.appendChild(d);
     const dx=(tx-fx).toFixed(0), dy=(ty-fy).toFixed(0);
     requestAnimationFrame(()=>{ d.style.transform=`translate(-50%,-50%) translate(${dx}px,${dy}px)`; }); later(300,()=>d.remove()); }
