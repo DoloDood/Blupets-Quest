@@ -277,9 +277,11 @@
     border:3px solid var(--line);border-radius:12px;flex-shrink:0}
   .zone .zn{font-family:var(--px);font-size:9px;margin-bottom:5px}
   .zone .zd{font-size:13px;color:var(--ink2);font-weight:700}
-  .pips{display:flex;gap:4px;margin-top:6px}
+  .pips{display:flex;gap:5px;margin-top:6px;align-items:center}
   .pip{width:11px;height:11px;border-radius:50%;background:#0000001f;border:2px solid var(--line)}
   .pip.on{background:var(--mint)}
+  .pip.boss{width:12px;height:12px;border-radius:3px;transform:rotate(45deg);border-color:var(--sun);background:#ffc9281f}
+  .pip.boss.on{background:var(--sun);box-shadow:0 0 7px 1px var(--sun-glow)}
 
   /* cooking */
   .bits-row{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:6px 0 12px}
@@ -906,7 +908,10 @@ function subInfo(zone){
   const si = replay ? zone.stages-1 : prog;
   const isFinal = (si===zone.stages-1);
   const horde = !!zone.horde && isFinal;
-  return {si, isFinal, replay, horde, lvl:zone.lvl + Math.round(si*0.8), waves:horde?4:(isFinal?3:2)};
+  // waves ramp within a zone: 4 in the first stage up to 7 on the boss stage
+  const span = Math.max(1, zone.stages-1);
+  const waves = Math.min(7, 4 + Math.round(si/span*3));
+  return {si, isFinal, replay, horde, lvl:zone.lvl + Math.round(si*0.8), waves};
 }
 
 /* build enemies for a zone wave */
@@ -1726,7 +1731,7 @@ function vQuest(){
   const zones=ZONES.map(z=>{
     const unlocked=zoneUnlocked(z); const rec=counters(z.el);
     const prog=zoneProgress(z); const done=zoneDone(z);
-    const pips=Array.from({length:z.stages}).map((_,k)=>`<span class="pip${k<prog?' on':''}"></span>`).join("");
+    const pips=Array.from({length:z.stages}).map((_,k)=>`<span class="pip${k<prog?' on':''}${k===z.stages-1?' boss':''}"></span>`).join("");
     const bossNext=(!done && prog===z.stages-1);
     const stageTxt = done ? `Cleared ⭐ · replay boss` : `Stage ${prog+1}/${z.stages}${bossNext?' · 👑 boss!':''}`;
     return `<div class="zone ${unlocked?'':'locked'}" ${unlocked?`data-act="zone" data-z="${z.id}"`:''}>
