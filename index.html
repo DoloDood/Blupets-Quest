@@ -249,11 +249,10 @@
   .pet-art .ring{position:absolute;inset:-3px;border-radius:14px;border:3px solid var(--line)}
   .pet-art .bgc{position:absolute;inset:0;border-radius:12px;opacity:.18}
   .pet-art img{position:relative;border-radius:12px}
-  .pet-art.ascended .ascend-ring{position:absolute;inset:-4px;border-radius:15px;pointer-events:none;
-    border:2px solid #ffd24a;box-shadow:0 0 8px 2px #ffd24a88, inset 0 0 6px #ffe9a0aa;
-    animation:ascendGlow 1.8s ease-in-out infinite}
-  @keyframes ascendGlow{0%,100%{opacity:.55;box-shadow:0 0 6px 1px #ffd24a77, inset 0 0 5px #ffe9a099}
-    50%{opacity:1;box-shadow:0 0 13px 4px #ffd24acc, inset 0 0 8px #fff3c0}}
+  .pet-art.ascended img{animation:ascendGlow 1.8s ease-in-out infinite}
+  @keyframes ascendGlow{
+    0%,100%{filter:drop-shadow(0 0 2px #ffd24a) drop-shadow(0 0 4px #ffd24aaa)}
+    50%{filter:drop-shadow(0 0 4px #ffe9a0) drop-shadow(0 0 8px #ffd24a) drop-shadow(0 0 11px #ffd24a88)}}
 
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
@@ -1182,7 +1181,7 @@ function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show")
 function petArtHTML(p,size){const el=famElement(FAM_BY_ID[p.familyId]);const c=FAM_BY_ID[p.familyId].hex;
   const asc=(p.tier>=5);
   return `<div class="pet-art${asc?' ascended':''}" style="width:${size}px;height:${size}px">
-    <div class="bgc" style="background:${c}"></div>${asc?'<div class="ascend-ring"></div>':''}
+    <div class="bgc" style="background:${c}"></div>
     <img src="${petArtURL(p,size*2)}" width="${size}" height="${size}" alt="${petDisplayName(p)}" loading="lazy" onerror="this.style.opacity=0">
   </div>`;}
 function statbar(){
