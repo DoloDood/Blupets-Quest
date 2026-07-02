@@ -866,7 +866,7 @@ let S=null;
 /* auth + cloud state */
 const SUPA_URL="https://mzabzzfnwuqgkarrxyrm.supabase.co";
 const SUPA_KEY="sb_publishable_aAYGidy8P0_0peoJ0xn-Jg_OxT5Bbme";
-let sbc=null, authUser=null, isGuest=false, cloudTimer=null, lbStat="mobs", lbView="today";
+let sbc=null, authUser=null, isGuest=false, cloudTimer=null, lbCat="expedition", lbStat="mobs", lbView="today";
 function freshState(){
   return {ver:1, started:false, pixels:60, energy:16, maxEnergy:16, lastTs:Date.now(),
     bits:{Red:6,Yellow:4,Green:6,Cyan:3,Blue:6,Purple:3,Black:2,White:2},
@@ -2149,7 +2149,7 @@ function startBlitz(iid){
       <div id="bzUp" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:#0b0d1ad9;border-radius:12px"></div>
     </div>
     <div class="arena-foot"><span class="muted" style="font-size:11px">press & steer anywhere · auto-fires</span>
-      <button class="btn ghost sm" data-act="blitzquit">quit</button></div>
+      <button class="btn ghost sm" data-act="closeoverlay">quit</button></div>
   </div></div>`);
   document.body.appendChild(ov);
   const cv=$("bzCv"), ctx=cv.getContext("2d");
@@ -2234,6 +2234,7 @@ function startBlitz(iid){
       S.lb.weekStats.blitzWave=Math.max(S.lb.weekStats.blitzWave||0, wave);
       S.lb.dayStats.blitzScore=Math.max(S.lb.dayStats.blitzScore||0, score);
       S.lb.weekStats.blitzScore=Math.max(S.lb.weekStats.blitzScore||0, score); } }
+    if(kills>0) bumpStat("endlessKills", kills);
     if(wave>=5) logActivity("endless", "reached Endless Wave "+wave);
     const px=10+Math.round(score/7), dust=score>=300?2+Math.floor(score/600):0;
     S.pixels+=px; if(dust)S.dust+=dust;
@@ -2376,7 +2377,6 @@ function startBlitz(iid){
     if(!ended){ if(!paused)update(dt); if(!ended)draw(); }
     if(!ended)window._blitzRAF=requestAnimationFrame(loop);
   }
-  window._blitzEnd=end;  // quit button ends the round & banks progress just like dying
   window._blitzRAF=requestAnimationFrame(loop);
 }
 function showBlitzResult(score,best,kills,waveReached,px,dust,iid){
@@ -2867,7 +2867,6 @@ document.addEventListener("click",e=>{
   else if(act==="upgrade"){upgradeStone(t.dataset.sid);}
   else if(act==="craft"){craftStone(t.dataset.kind);}
   else if(act==="closeoverlay"){closeOverlay();render();}
-  else if(act==="blitzquit"){ if(window._blitzEnd){window._blitzEnd();} else {closeOverlay();render();} }
   else if(act==="music"){toggleMusic();}
   else if(act==="energy"){showEnergyInfo();}
   else if(act==="refillEnergy"){refillEnergy();}
@@ -2878,7 +2877,6 @@ function closeOverlay(){
   if(evoTimer){clearTimeout(evoTimer);evoTimer=null;}
   if(energyTimer){clearInterval(energyTimer);energyTimer=null;}
   if(window._blitzRAF){cancelAnimationFrame(window._blitzRAF);window._blitzRAF=null;}
-  window._blitzEnd=null;
   if(currentTrack==="battle"||currentTrack==="arcade")playTrack("main");
   document.querySelectorAll(".overlay").forEach(o=>o.remove());
   document.querySelectorAll(".dmgpop").forEach(o=>o.remove());
@@ -4002,6 +4000,11 @@ function syncLeaderboard(){ if(isGuest||!sbc||!authUser||!S.username)return;
   try{ sbc.from("leaderboard").upsert({...base, endless_score:esA}).then(()=>{},()=>{}); }catch(e){}
   try{ sbc.from("lb_daily").upsert({...base, period:lb.day, endless_score:esD}).then(()=>{},()=>{}); }catch(e){}
   try{ sbc.from("lb_weekly").upsert({...base, period:lb.week, endless_score:esW}).then(()=>{},()=>{}); }catch(e){}
+  // Endless cumulative mob kills — summed across every attempt (isolated so a missing column can't break other writes)
+  const ekA=st.endlessKills||0, ekD=(d.endlessKills||0), ekW=(w.endlessKills||0);
+  try{ sbc.from("leaderboard").upsert({...base, endless_kills:ekA}).then(()=>{},()=>{}); }catch(e){}
+  try{ sbc.from("lb_daily").upsert({...base, period:lb.day, endless_kills:ekD}).then(()=>{},()=>{}); }catch(e){}
+  try{ sbc.from("lb_weekly").upsert({...base, period:lb.week, endless_kills:ekW}).then(()=>{},()=>{}); }catch(e){}
 }
 function enterGame(){ if(!isGuest)rolloverCheck(); regenEnergy(); statbar(); renderTabs(); if(S.cooking)startCookTicker(); if(S.started)render(); else startFlow(); setTimeout(maybeReturnToast,800); }
 function maybeReturnToast(){
@@ -4111,48 +4114,76 @@ async function doMagicLink(){
     if(msg)msg.innerHTML="✅ Check your email for a sign-in link! Click it and you'll land back here, signed in.";
   }catch(e){ if(msg)msg.textContent="Network error — try again, or play as guest."; }
 }
-const LB_VIEWS=[["today","Today"],["yesterday","Yesterday"],["week","This Week"],["lastweek","Last Week"],["alltime","All-Time"]];
-// Leaderboard boards. Endless ranks by score. (wave/bosses/pets/evolves/runs still tracked, just not shown.)
-function lbCats(view){
-  const cats=[
-    {key:"mobs", label:"Mobs", stats:[["mobs","Mobs"]]},
-    {key:"endless", label:"Endless", stats:[["endless_score","Endless"]]},
-  ];
-  if(view==="alltime") cats.push(
-    {key:"highest_zone", label:"Zone", stats:[["highest_zone","Zone"]]},
-    {key:"highest_level", label:"Level", stats:[["highest_level","Level"]]}
-  );
-  return cats;
+/* ============ LEADERBOARD MODEL ============ */
+// Three categories. Expedition & Endless rank over time windows; Community ranks over event windows.
+const LB_TIME_VIEWS =[["today","Today"],["yesterday","Yesterday"],["week","This Week"],["lastweek","Last Week"],["alltime","All-Time"]];
+const LB_EVENT_VIEWS=[["cur","Current Event"],["last","Last Event"],["alltime","All-Time"]];
+const LB_CATS=[
+  {key:"expedition", label:"🗺️ Expedition", scope:"time", stats:[
+    {key:"mobs",          label:"Mobs Killed"},
+    {key:"expeditions",   label:"Expeditions Won"},
+  ]},
+  {key:"endless", label:"♾️ Endless", scope:"time", stats:[
+    {key:"endless_kills", label:"Mobs Killed"},
+    {key:"endless_score", label:"High Score", fmt:v=>(+v||0).toLocaleString()},
+    {key:"endless_wave",  label:"Best Wave",  fmt:v=>"Wave "+(+v||0)},
+  ]},
+  {key:"community", label:"👥 Community", scope:"event", stats:[
+    {key:"damage",  label:"Damage", fmt:v=>(+v||0).toLocaleString()},
+    {key:"strikes", label:"Attempts"},
+  ]},
+];
+function lbCatObj(k){ return LB_CATS.find(c=>c.key===k)||LB_CATS[0]; }
+function lbStatObj(){ const c=lbCatObj(lbCat); return c.stats.find(s=>s.key===lbStat)||c.stats[0]; }
+function lbViewsFor(cat){ return lbCatObj(cat).scope==="event"?LB_EVENT_VIEWS:LB_TIME_VIEWS; }
+function lbFmtVal(v){ const s=lbStatObj(); return s.fmt?s.fmt(v):(""+(+v||0)); }
+function lbFixState(){
+  const c=lbCatObj(lbCat);
+  if(!c.stats.some(s=>s.key===lbStat)) lbStat=c.stats[0].key;
+  if(!lbViewsFor(lbCat).some(v=>v[0]===lbView)) lbView=(c.scope==="event"?"cur":"today");
 }
-function lbCatOf(stat){ return stat==="endless_score"?"endless":stat; }
-function lbValidStat(view){ return lbCats(view).some(c=>c.stats.some(s=>s[0]===lbStat)); }
-function lbTarget(view){ // {table, period|null}
+function lbNote(){
+  const c=lbCatObj(lbCat);
+  if(c.scope==="event"){
+    if(lbView==="cur") return "Live event — standings update each dawn.";
+    if(lbView==="last")return "Final results from the previous event.";
+    return "All-time community totals across every event.";
+  }
+  if(lbView==="today")    return "Resets at midnight (Eastern).";
+  if(lbView==="week")     return "Resets Sunday midnight (Eastern).";
+  if(lbView==="yesterday")return "Final results for yesterday.";
+  if(lbView==="lastweek") return "Final results for last week.";
+  return "All-time totals.";
+}
+// time-scope: which table + period key to query
+function lbTimeTarget(){
   const k=periodKeys();
-  if(view==="today")    return {table:"lb_daily",  period:k.day};
-  if(view==="yesterday")return {table:"lb_daily",  period:addDaysKey(k.day,-1)};
-  if(view==="week")     return {table:"lb_weekly", period:k.week};
-  if(view==="lastweek") return {table:"lb_weekly", period:addDaysKey(k.week,-7)};
+  if(lbView==="today")    return {table:"lb_daily",  period:k.day};
+  if(lbView==="yesterday")return {table:"lb_daily",  period:addDaysKey(k.day,-1)};
+  if(lbView==="week")     return {table:"lb_weekly", period:k.week};
+  if(lbView==="lastweek") return {table:"lb_weekly", period:addDaysKey(k.week,-7)};
   return {table:"leaderboard", period:null};
 }
-function lbFmt(stat,v){ v=v||0; return stat==="endless_wave"?("Wave "+v):stat==="endless_score"?v.toLocaleString():(""+v); }
-function lbResetNote(view){
-  if(view==="today")return "Resets at midnight (Eastern).";
-  if(view==="week")return "Resets Sunday midnight (Eastern).";
-  if(view==="yesterday")return "Final results for yesterday.";
-  if(view==="lastweek")return "Final results for last week.";
-  return "All-time totals.";
+// event-scope: resolve current + previous event keys (event_key strings sort chronologically)
+async function lbEventKeys(){
+  let cur=(bossEvent&&bossEvent.event_key)||null;
+  if(!cur){ try{ await bossFetch(); }catch(e){} cur=(bossEvent&&bossEvent.event_key)||null; }
+  if(!cur){ try{ const {data}=await sbc.from("boss_contrib").select("event_key").order("event_key",{ascending:false}).limit(1); cur=(data&&data[0]&&data[0].event_key)||null; }catch(e){} }
+  let last=null;
+  if(cur){ try{ const {data}=await sbc.from("boss_contrib").select("event_key").lt("event_key",cur).order("event_key",{ascending:false}).limit(1); last=(data&&data[0]&&data[0].event_key)||null; }catch(e){} }
+  return {cur,last};
 }
 function showLeaderboard(){
   syncLeaderboard();
+  lbFixState();
   const needName = !isGuest && authUser && !S.username;
-  if(!lbValidStat(lbView))lbStat="mobs";
   const ov=h(`<div class="overlay" data-dismiss="1"><div class="battle">
     <div class="center" style="font-size:30px">🏆</div>
     <h2 class="title center">Leaderboard</h2>
     <div id="commBox" class="commbox"></div>
-    <div id="lbViews" class="lbtabs"></div>
+    <div id="lbCats" class="lbtabs"></div>
     <div id="lbTabs" class="lbtabs" style="margin-top:6px"></div>
-    <div id="lbSub" class="lbtabs" style="margin-top:6px;display:none"></div>
+    <div id="lbViews" class="lbtabs" style="margin-top:6px"></div>
     <div id="lbNote" class="muted center" style="font-size:10px;margin-top:6px"></div>
     <div id="lbBody" class="muted center" style="margin-top:8px;min-height:60px">Loading…</div>
     ${needName?`<button class="btn mint" data-act="setname" style="width:100%;margin-top:8px">Choose a name to join</button>`:""}
@@ -4160,57 +4191,51 @@ function showLeaderboard(){
     <button class="btn ghost" data-act="closeoverlay" style="width:100%;margin-top:10px">Close</button>
   </div></div>`);
   document.body.appendChild(ov);
-  renderLbViews(ov); renderLbTabs(ov); loadLb(ov); loadCommunity(ov);
+  renderLbAll(ov); loadCommunity(ov);
 }
-function renderLbViews(ov){
-  const t=ov.querySelector("#lbViews"); if(!t)return;
-  t.innerHTML=LB_VIEWS.map(([k,lb])=>`<button class="lbtab ${lbView===k?'on':''}" data-lv="${k}">${lb}</button>`).join("");
-  t.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{ lbView=b.dataset.lv;
-    if(!lbValidStat(lbView))lbStat="mobs";
-    renderLbViews(ov); renderLbTabs(ov); loadLb(ov); });
+function renderLbAll(ov){ renderLbCats(ov); renderLbTabs(ov); renderLbViews(ov); loadLb(ov); }
+function renderLbCats(ov){
+  const t=ov.querySelector("#lbCats"); if(!t)return;
+  t.innerHTML=LB_CATS.map(c=>`<button class="lbtab ${lbCat===c.key?'on':''}" data-cat="${c.key}">${c.label}</button>`).join("");
+  t.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{ lbCat=b.dataset.cat; lbFixState(); renderLbAll(ov); });
 }
 function renderLbTabs(ov){
   const t=ov.querySelector("#lbTabs"); if(!t)return;
-  const cats=lbCats(lbView), curCat=lbCatOf(lbStat);
-  t.innerHTML=cats.map(c=>`<button class="lbtab ${curCat===c.key?'on':''}" data-cat="${c.key}">${c.label}</button>`).join("");
-  t.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{
-    const c=cats.find(x=>x.key===b.dataset.cat); if(!c)return;
-    if(!c.stats.some(s=>s[0]===lbStat)) lbStat=c.stats[0][0]; // keep current Endless sub-choice when re-selecting Endless
-    renderLbTabs(ov); loadLb(ov);
-  });
-  // Endless sub-toggle (Wave / Score) — only shows when a grouped board is selected
-  const sub=ov.querySelector("#lbSub");
-  if(sub){
-    const cat=cats.find(c=>c.key===curCat);
-    if(cat && cat.stats.length>1){
-      sub.style.display="flex";
-      sub.innerHTML=cat.stats.map(([k,lb])=>`<button class="lbtab ${lbStat===k?'on':''}" data-sub="${k}">${lb}</button>`).join("");
-      sub.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{ lbStat=b.dataset.sub; renderLbTabs(ov); loadLb(ov); });
-    } else { sub.style.display="none"; sub.innerHTML=""; }
-  }
-  const note=ov.querySelector("#lbNote"); if(note)note.textContent=lbResetNote(lbView);
+  const c=lbCatObj(lbCat);
+  t.innerHTML=c.stats.map(s=>`<button class="lbtab ${lbStat===s.key?'on':''}" data-stat="${s.key}">${s.label}</button>`).join("");
+  t.style.display=c.stats.length>1?"flex":"none";
+  t.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{ lbStat=b.dataset.stat; renderLbTabs(ov); renderLbViews(ov); loadLb(ov); });
+}
+function renderLbViews(ov){
+  const t=ov.querySelector("#lbViews"); if(!t)return;
+  t.innerHTML=lbViewsFor(lbCat).map(([k,lb])=>`<button class="lbtab ${lbView===k?'on':''}" data-lv="${k}">${lb}</button>`).join("");
+  t.querySelectorAll(".lbtab").forEach(b=>b.onclick=()=>{ lbView=b.dataset.lv; renderLbViews(ov); loadLb(ov); });
+  const note=ov.querySelector("#lbNote"); if(note)note.textContent=lbNote();
+}
+function lbRowsHTML(rows, stat, myId){
+  return rows.map((r,i)=>{
+    const me=myId&&r.user_id===myId;
+    const medal=i===0?"🥇":i===1?"🥈":i===2?"🥉":(i+1);
+    return `<div class="lbrow${me?' me':''}"><span class="lbrank">${medal}</span>
+      <span class="lbname">${esc(r.username||'trainer')}</span><span class="lbval">${lbFmtVal(r[stat])}</span></div>`;
+  }).join("");
 }
 async function loadLb(ov){
   const body=ov.querySelector("#lbBody"); if(!body)return; body.textContent="Loading…";
   if(!sbc){ body.textContent="Leaderboard is offline right now."; return; }
-  const {table,period}=lbTarget(lbView); const stat=lbStat;
+  const myId=authUser&&authUser.id, stat=lbStat, scope=lbCatObj(lbCat).scope;
   try{
+    if(scope==="event"){ return await loadLbCommunity(ov, body, stat, myId); }
+    const {table,period}=lbTimeTarget();
     let q=sbc.from(table).select("user_id,username,"+stat).order(stat,{ascending:false}).limit(50);
     if(period)q=q.eq("period",period);
     const {data,error}=await q;
     if(error){ body.textContent="Couldn't load: "+error.message; return; }
     if(!data||!data.length){ body.innerHTML=`<div style="padding:10px 0">No scores yet — be the first!</div>`; return; }
-    const myId=authUser&&authUser.id;
-    const rows=data.map((r,i)=>{
-      const me=myId&&r.user_id===myId;
-      const medal=i===0?"🥇":i===1?"🥈":i===2?"🥉":(i+1);
-      return `<div class="lbrow${me?' me':''}"><span class="lbrank">${medal}</span>
-        <span class="lbname">${esc(r.username)}</span><span class="lbval">${lbFmt(stat,r[stat])}</span></div>`;
-    }).join("");
+    const rows=lbRowsHTML(data, stat, myId);
     let mine="";
-    const inTop = myId && data.some(r=>r.user_id===myId);
-    if(myId && S.username && !inTop){
-      // fetch own value + rank
+    const inTop=myId&&data.some(r=>r.user_id===myId);
+    if(myId&&S.username&&!inTop){
       try{
         let oq=sbc.from(table).select(stat).eq("user_id",myId); if(period)oq=oq.eq("period",period);
         const {data:od}=await oq.maybeSingle();
@@ -4219,14 +4244,62 @@ async function loadLb(ov){
           let cq=sbc.from(table).select("*",{count:"exact",head:true}).gt(stat,myVal); if(period)cq=cq.eq("period",period);
           const {count}=await cq;
           mine=`<div class="lbrow me" style="margin-top:8px"><span class="lbrank">${(count||0)+1}</span>
-            <span class="lbname">${esc(S.username)} (you)</span><span class="lbval">${lbFmt(stat,myVal)}</span></div>`;
-        } else {
-          mine=`<div class="muted center" style="margin-top:8px;font-size:11px">You're not on this board yet — play to climb!</div>`;
-        }
+            <span class="lbname">${esc(S.username)} (you)</span><span class="lbval">${lbFmtVal(myVal)}</span></div>`;
+        } else { mine=`<div class="muted center" style="margin-top:8px;font-size:11px">You're not on this board yet — play to climb!</div>`; }
       }catch(e){}
     }
     body.innerHTML=`<div class="lblist">${rows}</div>${mine}`;
   }catch(e){ body.textContent="Network error loading the board."; }
+}
+async function loadLbCommunity(ov, body, stat, myId){
+  // All-Time: aggregate across every event via server RPC (falls back to client-side sum)
+  if(lbView==="alltime"){
+    let data=null;
+    try{ const r=await sbc.rpc("boss_totals"); if(!r.error)data=r.data; }catch(e){}
+    if(!data){
+      try{ const r=await sbc.from("boss_contrib").select("user_id,username,damage,strikes"); const m={};
+        (r.data||[]).forEach(x=>{ const o=m[x.user_id]||(m[x.user_id]={user_id:x.user_id,username:x.username,damage:0,strikes:0});
+          o.damage+=x.damage||0; o.strikes+=x.strikes||0; if(x.username)o.username=x.username; });
+        data=Object.values(m);
+      }catch(e){}
+    }
+    if(!data||!data.length){ body.innerHTML=`<div style="padding:10px 0">No community strikes recorded yet.</div>`; return; }
+    data.sort((a,b)=>(b[stat]||0)-(a[stat]||0));
+    const top=data.slice(0,50), rows=lbRowsHTML(top, stat, myId);
+    let mine="";
+    const myIdx=data.findIndex(r=>r.user_id===myId);
+    if(myId&&S.username&&myIdx>=50){
+      const r=data[myIdx];
+      mine=`<div class="lbrow me" style="margin-top:8px"><span class="lbrank">${myIdx+1}</span>
+        <span class="lbname">${esc(S.username)} (you)</span><span class="lbval">${lbFmtVal(r[stat])}</span></div>`;
+    } else if(myId&&S.username&&myIdx<0){
+      mine=`<div class="muted center" style="margin-top:8px;font-size:11px">You haven't struck a Cube yet — join an event to climb!</div>`;
+    }
+    body.innerHTML=`<div class="lblist">${rows}</div>${mine}`;
+    return;
+  }
+  // Current / Last event: read that event's contribution rows
+  const {cur,last}=await lbEventKeys();
+  const key=lbView==="last"?last:cur;
+  if(!key){ body.innerHTML=`<div style="padding:10px 0">${lbView==="last"?"No previous event yet.":"No active event right now."}</div>`; return; }
+  let data=null;
+  try{ const r=await sbc.from("boss_contrib").select("user_id,username,damage,strikes").eq("event_key",key).order(stat,{ascending:false}).limit(50); data=r.data; }catch(e){}
+  if(!data||!data.length){ body.innerHTML=`<div style="padding:10px 0">${stat==="damage"?"No damage dealt yet — strikes resolve at dawn.":"No strikes recorded yet."}</div>`; return; }
+  const rows=lbRowsHTML(data, stat, myId);
+  let mine="";
+  const inTop=myId&&data.some(r=>r.user_id===myId);
+  if(myId&&S.username&&!inTop){
+    try{
+      const {data:od}=await sbc.from("boss_contrib").select(stat).eq("event_key",key).eq("user_id",myId).maybeSingle();
+      const myVal=od?(od[stat]||0):0;
+      if(myVal>0){
+        const {count}=await sbc.from("boss_contrib").select("*",{count:"exact",head:true}).eq("event_key",key).gt(stat,myVal);
+        mine=`<div class="lbrow me" style="margin-top:8px"><span class="lbrank">${(count||0)+1}</span>
+          <span class="lbname">${esc(S.username)} (you)</span><span class="lbval">${lbFmtVal(myVal)}</span></div>`;
+      }
+    }catch(e){}
+  }
+  body.innerHTML=`<div class="lblist">${rows}</div>${mine}`;
 }
 async function bootAuth(){
   initSupa();
